@@ -1,9 +1,74 @@
 import { parseCsv } from "./csv.js";
 import { MODELS, defaultParams } from "./algorithms/registry.js";
-import { renderChart, cleanSeries } from "./charts.js";
+import { createChart, cleanSeries } from "./charts.js";
 
 const $ = (sel) => document.querySelector(sel);
 const state = { data: null, modelId: "zscore", params: {}, result: null };
+
+// Chart controllers (created lazily, reused across renders).
+let chartMain = null;
+let chartClean = null;
+
+function ensureCharts() {
+  if (chartMain) return;
+  // Zooming/panning either chart mirrors the X window onto the other so the
+  // original and cleaned series always line up.
+  chartMain = createChart($("#chart-main"), {
+    onViewChange: (dom) => {
+      if (chartClean && chartClean.hasData && chartClean.N === chartMain.N) chartClean.setXDomain(dom, true);
+    },
+  });
+  chartClean = createChart($("#chart-clean"), {
+    onViewChange: (dom) => {
+      if (chartMain && chartMain.hasData && chartMain.N === chartClean.N) chartMain.setXDomain(dom, true);
+    },
+  });
+}
+
+// ---- Y-scale controls ------------------------------------------------------
+function applyYScale() {
+  const auto = $("#yauto").checked;
+  $("#ymin").disabled = auto;
+  $("#ymax").disabled = auto;
+  let override = null;
+  if (!auto) {
+    const min = parseFloat($("#ymin").value);
+    const max = parseFloat($("#ymax").value);
+    if (Number.isFinite(min) && Number.isFinite(max) && max > min) override = { min, max };
+  }
+  chartMain?.setYDomain(override);
+  chartClean?.setYDomain(override);
+}
+
+// Prefill the manual min/max with the current data range when switching to it.
+function prefillScale() {
+  if (!state.data) return;
+  const vals = state.data.series.map((p) => p.value).filter(Number.isFinite);
+  if (!vals.length) return;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const pad = (max - min) * 0.05 || 1;
+  if ($("#ymin").value === "") $("#ymin").value = Number((min - pad).toFixed(3));
+  if ($("#ymax").value === "") $("#ymax").value = Number((max + pad).toFixed(3));
+}
+
+// ---- Reset -----------------------------------------------------------------
+function resetAll() {
+  state.data = null;
+  state.result = null;
+  $("#file").value = "";
+  $("#file-meta").textContent = "";
+  $("#file-meta").classList.remove("error");
+  $("#run").disabled = true;
+  $("#results").hidden = true;
+  chartMain?.clear();
+  chartClean?.clear();
+  $("#yauto").checked = true;
+  $("#ymin").value = "";
+  $("#ymax").value = "";
+  $("#ymin").disabled = true;
+  $("#ymax").disabled = true;
+}
 
 // ---- Model selector + parameter controls ----------------------------------
 function buildModelSelector() {
@@ -103,13 +168,15 @@ function handleFile(file) {
 }
 
 function renderPreview() {
+  ensureCharts();
   $("#results").hidden = false;
   $("#stats").innerHTML = "";
   $("#anomaly-table").innerHTML = "";
   const values = state.data.series.map((p) => p.value);
   const labels = state.data.series.map((p) => p.label);
   $("#chart-title").textContent = "Série DFINAL (aperçu — lancez la détection)";
-  renderChart($("#chart-main"), { values, labels, markers: null });
+  chartMain.setData({ series: [{ values, name: "DFINAL" }], labels, markers: null });
+  applyYScale();
   $("#chart-clean-block").hidden = true;
 }
 
@@ -172,6 +239,7 @@ async function runMainThread(payload, done) {
 
 // ---- Results rendering -----------------------------------------------------
 function renderResults(msg) {
+  ensureCharts();
   const series = state.data.series;
   const values = series.map((p) => p.value);
   const labels = series.map((p) => p.label);
@@ -180,11 +248,20 @@ function renderResults(msg) {
 
   $("#results").hidden = false;
   $("#chart-title").textContent = "Série DFINAL + anomalies détectées";
-  renderChart($("#chart-main"), { values, labels, markers });
+  chartMain.setData({ series: [{ values, name: "DFINAL" }], labels, markers });
 
   $("#chart-clean-block").hidden = false;
-  $("#chart-clean-title").textContent = "Série nettoyée (anomalies retirées)";
-  renderChart($("#chart-clean"), { values: cleanSeries(values, markers), labels, markers: null });
+  $("#chart-clean-title").textContent = "Origine vs série nettoyée";
+  const cleaned = cleanSeries(values, markers);
+  chartClean.setData({
+    series: [
+      { values, name: "Origine", className: "series-line series-ghost", dashed: true },
+      { values: cleaned, name: "Nettoyée", className: "series-line" },
+    ],
+    labels,
+    markers: null,
+  });
+  applyYScale();
 
   // Stats
   const pct = ((markers.size / values.length) * 100).toFixed(1);
@@ -285,8 +362,23 @@ function initTheme() {
   });
 }
 
+function initControls() {
+  $("#reset-data").addEventListener("click", resetAll);
+  $("#reset-zoom").addEventListener("click", () => {
+    chartMain?.resetZoom();
+    chartClean?.resetZoom();
+  });
+  $("#yauto").addEventListener("change", () => {
+    if (!$("#yauto").checked) prefillScale();
+    applyYScale();
+  });
+  $("#ymin").addEventListener("input", applyYScale);
+  $("#ymax").addEventListener("input", applyYScale);
+}
+
 buildModelSelector();
 buildParamControls();
 initDropzone();
 initTheme();
+initControls();
 $("#run").addEventListener("click", runDetection);
