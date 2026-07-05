@@ -1,5 +1,6 @@
 // Dependency-free forecasting models that run fully in the browser.
-// They return future values plus optional confidence bands and fit metrics.
+// Forecasting is trained on an automatically cleaned series so short spikes /
+// aberrant measurements do not dominate the prediction.
 
 function finiteSeries(series) {
   return series.map((p, i) => ({ ...p, i })).filter((p) => Number.isFinite(p.value));
@@ -27,6 +28,13 @@ function mean(values) {
   return values.reduce((a, v) => a + v, 0) / Math.max(1, values.length);
 }
 
+function median(values) {
+  if (!values.length) return 0;
+  const s = values.slice().sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
 function std(values) {
   if (values.length < 2) return 0;
   const m = mean(values);
@@ -49,6 +57,41 @@ function normalise(values) {
   };
 }
 
+function interpolateRemoved(values, removed) {
+  const out = values.slice();
+  for (let i = 0; i < out.length; i++) {
+    if (!removed.has(i)) continue;
+    let a = i - 1;
+    while (a >= 0 && removed.has(a)) a--;
+    let b = i + 1;
+    while (b < out.length && removed.has(b)) b++;
+    const va = a >= 0 ? values[a] : null;
+    const vb = b < out.length ? values[b] : null;
+    if (va != null && vb != null) out[i] = va + ((vb - va) * (i - a)) / (b - a);
+    else if (va != null) out[i] = va;
+    else if (vb != null) out[i] = vb;
+  }
+  return out;
+}
+
+function cleanAberrantValues(values) {
+  const win = Math.max(5, Math.min(25, Math.floor(values.length / 20) * 2 + 1));
+  const half = Math.floor(win / 2);
+  const residuals = values.map((v, i) => {
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(values.length, i + half + 1);
+    return v - median(values.slice(lo, hi));
+  });
+  const center = median(residuals);
+  const mad = median(residuals.map((r) => Math.abs(r - center))) || std(residuals) / 1.4826 || 1;
+  const limit = Math.max(6 * 1.4826 * mad, std(values) * 3 || 0);
+  const removed = new Set();
+  residuals.forEach((r, i) => {
+    if (Math.abs(r - center) > limit) removed.add(i);
+  });
+  return { values: interpolateRemoved(values, removed), indices: [...removed].sort((a, b) => a - b) };
+}
+
 function fitBand(values, fitted) {
   const residuals = [];
   for (let i = 0; i < values.length; i++) {
@@ -57,7 +100,7 @@ function fitBand(values, fitted) {
   return std(residuals) || std(values) || 0;
 }
 
-function forecastLabels(series, horizon) {
+function futureLabels(series, horizon) {
   const step = medianStep(series);
   const last = series[series.length - 1];
   const lastDate = last.label ? new Date(String(last.label).replace(" ", "T") + "Z") : null;
@@ -67,31 +110,9 @@ function forecastLabels(series, horizon) {
     if (isTimed) {
       const d = new Date(lastDate.getTime() + step * h * 1000);
       labels.push(d.toISOString().replace("T", " ").replace(".000Z", ""));
-    } else {
-      labels.push(`#${last.index + h + 1}`);
-    }
+    } else labels.push(`#${last.index + h + 1}`);
   }
   return labels;
-}
-
-function buildForecastResult(series, forecast, fitted, warning = null) {
-  const values = series.map((p) => p.value);
-  const sigma = fitBand(values, fitted);
-  const lower = forecast.map((v) => v - 1.96 * sigma);
-  const upper = forecast.map((v) => v + 1.96 * sigma);
-  const errors = [];
-  for (let i = 0; i < values.length; i++) {
-    if (Number.isFinite(fitted[i])) errors.push(values[i] - fitted[i]);
-  }
-  return {
-    forecast,
-    lower,
-    upper,
-    fitted,
-    forecastLabels: forecastLabels(series, forecast.length),
-    metrics: { horizon: forecast.length, rmse: rmse(errors) },
-    warning,
-  };
 }
 
 function windowDistance(a, b) {
@@ -103,34 +124,20 @@ function windowDistance(a, b) {
   return Math.sqrt(acc / a.length);
 }
 
-export function forecastKnn(series, params) {
-  const clean = finiteSeries(series);
-  const values = clean.map((p) => p.value);
-  const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(clean), 10));
-  const windowSize = Math.max(2, parseInt(params.window_size ?? 24, 10));
-  const k = Math.max(1, parseInt(params.neighbors ?? 5, 10));
+function knnValues(values, { horizon, windowSize, k }) {
   if (values.length < windowSize + 2) {
-    const last = values[values.length - 1];
-    return buildForecastResult(clean, new Array(horizon).fill(last), [], "Série trop courte : prévision naïve avec la dernière valeur.");
+    return { forecast: new Array(horizon).fill(values[values.length - 1]), fitted: [], warning: "Série trop courte : prévision naïve avec la dernière valeur." };
   }
-
   const norm = normalise(values);
   const y = values.map(norm.encode);
   const fitted = new Array(values.length).fill(null);
-  const fitErrors = [];
   for (let i = windowSize; i < values.length; i++) {
     const target = y.slice(i - windowSize, i);
     const candidates = [];
-    for (let j = windowSize; j < i; j++) {
-      candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[j] });
-    }
+    for (let j = windowSize; j < i; j++) candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[j] });
     candidates.sort((a, b) => a.d - b.d);
     const pick = candidates.slice(0, Math.min(k, candidates.length));
-    if (pick.length) {
-      const pred = mean(pick.map((c) => c.next));
-      fitted[i] = norm.decode(pred);
-      fitErrors.push(values[i] - fitted[i]);
-    }
+    if (pick.length) fitted[i] = norm.decode(mean(pick.map((c) => c.next)));
   }
 
   const history = y.slice();
@@ -138,10 +145,8 @@ export function forecastKnn(series, params) {
   for (let h = 0; h < horizon; h++) {
     const target = history.slice(-windowSize);
     const candidates = [];
-    for (let j = windowSize; j < y.length - h; j++) {
-      const futureIdx = j + h;
-      if (futureIdx >= y.length) continue;
-      candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[futureIdx] });
+    for (let j = windowSize; j < y.length; j++) {
+      candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[j] });
     }
     candidates.sort((a, b) => a.d - b.d);
     const pick = candidates.slice(0, Math.min(k, candidates.length));
@@ -149,8 +154,7 @@ export function forecastKnn(series, params) {
     forecastNorm.push(pred);
     history.push(pred);
   }
-  const forecast = forecastNorm.map(norm.decode);
-  return buildForecastResult(clean, forecast, fitted, fitErrors.length ? null : "Peu d'historique comparable : précision limitée.");
+  return { forecast: forecastNorm.map(norm.decode), fitted };
 }
 
 function mulberry32(seed) {
@@ -164,19 +168,10 @@ function mulberry32(seed) {
   };
 }
 
-export function forecastMlp(series, params) {
-  const clean = finiteSeries(series);
-  const values = clean.map((p) => p.value);
-  const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(clean), 10));
-  const windowSize = Math.max(2, parseInt(params.window_size ?? 24, 10));
-  const hidden = Math.max(2, parseInt(params.hidden_units ?? 12, 10));
-  const epochs = Math.max(1, parseInt(params.epochs ?? 200, 10));
-  const lr = Math.max(0.0001, parseFloat(params.learning_rate ?? 0.01));
+function mlpValues(values, { horizon, windowSize, hidden, epochs, lr }) {
   if (values.length < windowSize + 2) {
-    const last = values[values.length - 1];
-    return buildForecastResult(clean, new Array(horizon).fill(last), [], "Série trop courte : prévision naïve avec la dernière valeur.");
+    return { forecast: new Array(horizon).fill(values[values.length - 1]), fitted: [], warning: "Série trop courte : prévision naïve avec la dernière valeur." };
   }
-
   const norm = normalise(values);
   const y = values.map(norm.encode);
   const rand = mulberry32(123456);
@@ -184,10 +179,8 @@ export function forecastMlp(series, params) {
   const b1 = new Array(hidden).fill(0);
   const w2 = Array.from({ length: hidden }, () => (rand() - 0.5) * 0.2);
   let b2 = 0;
-
   const samples = [];
   for (let i = windowSize; i < y.length; i++) samples.push({ x: y.slice(i - windowSize, i), target: y[i], i });
-
   const predictNorm = (x) => {
     const h = new Array(hidden);
     for (let j = 0; j < hidden; j++) {
@@ -199,7 +192,6 @@ export function forecastMlp(series, params) {
     for (let j = 0; j < hidden; j++) out += w2[j] * h[j];
     return { out, h };
   };
-
   for (let epoch = 0; epoch < epochs; epoch++) {
     for (const s of samples) {
       const { out, h } = predictNorm(s.x);
@@ -214,7 +206,6 @@ export function forecastMlp(series, params) {
       b2 -= lr * err;
     }
   }
-
   const fitted = new Array(values.length).fill(null);
   for (const s of samples) fitted[s.i] = norm.decode(predictNorm(s.x).out);
   const history = y.slice();
@@ -224,5 +215,64 @@ export function forecastMlp(series, params) {
     history.push(pred);
     forecast.push(norm.decode(pred));
   }
-  return buildForecastResult(clean, forecast, fitted);
+  return { forecast, fitted };
+}
+
+function buildResult(series, cleaned, modelRun, horizon) {
+  const future = modelRun(cleaned.values, horizon);
+  const sigma = fitBand(cleaned.values, future.fitted);
+  const lower = future.forecast.map((v) => v - 1.96 * sigma);
+  const upper = future.forecast.map((v) => v + 1.96 * sigma);
+  const backtestHorizon = Math.min(horizon, Math.max(1, Math.floor(series.length / 2)));
+  let backtest = null;
+  if (cleaned.values.length > backtestHorizon + 2) {
+    const split = cleaned.values.length - backtestHorizon;
+    const trainCleaned = cleanAberrantValues(series.slice(0, split).map((p) => p.value));
+    const bt = modelRun(trainCleaned.values, backtestHorizon);
+    const actual = series.slice(split).map((p) => p.value);
+    const errors = actual.map((v, i) => v - bt.forecast[i]).filter(Number.isFinite);
+    backtest = {
+      startIndex: split,
+      forecast: bt.forecast,
+      actual,
+      labels: series.slice(split).map((p) => p.label),
+      rmse: rmse(errors),
+      lower: bt.forecast.map((v) => v - 1.96 * sigma),
+      upper: bt.forecast.map((v) => v + 1.96 * sigma),
+    };
+  }
+  const fitErrors = [];
+  for (let i = 0; i < cleaned.values.length; i++) if (Number.isFinite(future.fitted[i])) fitErrors.push(cleaned.values[i] - future.fitted[i]);
+  return {
+    forecast: future.forecast,
+    lower,
+    upper,
+    fitted: future.fitted,
+    cleaned: cleaned.values,
+    cleanedOutliers: cleaned.indices,
+    backtest,
+    forecastLabels: futureLabels(series, future.forecast.length),
+    metrics: { horizon: future.forecast.length, rmse: rmse(fitErrors), backtestRmse: backtest?.rmse ?? null },
+    warning: future.warning ?? (cleaned.indices.length ? `${cleaned.indices.length} mesure(s) aberrante(s) nettoyée(s) avant forecast.` : null),
+  };
+}
+
+export function forecastKnn(series, params) {
+  const cleanSeries = finiteSeries(series);
+  const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(cleanSeries), 10));
+  const windowSize = Math.max(2, parseInt(params.window_size ?? 24, 10));
+  const k = Math.max(1, parseInt(params.neighbors ?? 5, 10));
+  const cleaned = cleanAberrantValues(cleanSeries.map((p) => p.value));
+  return buildResult(cleanSeries, cleaned, (values, h) => knnValues(values, { horizon: h, windowSize, k }), horizon);
+}
+
+export function forecastMlp(series, params) {
+  const cleanSeries = finiteSeries(series);
+  const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(cleanSeries), 10));
+  const windowSize = Math.max(2, parseInt(params.window_size ?? 24, 10));
+  const hidden = Math.max(2, parseInt(params.hidden_units ?? 12, 10));
+  const epochs = Math.max(1, parseInt(params.epochs ?? 200, 10));
+  const lr = Math.max(0.0001, parseFloat(params.learning_rate ?? 0.01));
+  const cleaned = cleanAberrantValues(cleanSeries.map((p) => p.value));
+  return buildResult(cleanSeries, cleaned, (values, h) => mlpValues(values, { horizon: h, windowSize, hidden, epochs, lr }), horizon);
 }

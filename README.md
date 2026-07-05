@@ -34,7 +34,9 @@ temporelle. L'utilisateur pilote tout depuis l'interface :
 Les modèles d'anomalies sont des portages JavaScript des algorithmes Python du projet
 `Predic`, avec **parité numérique vérifiée** (voir `tests/`). Les modèles de
 prévision sont écrits en JavaScript pur et s'exécutent aussi localement, sans
-dépendance externe. L'architecture reste extensible : ajouter un modèle se fait
+dépendance externe. Le forecast est entraîné sur une série automatiquement
+nettoyée des mesures aberrantes et affiche aussi un backtest sur le dernier jour
+mesurable pour comparer prévision et réel. L'architecture reste extensible : ajouter un modèle se fait
 en ajoutant une entrée dans `src/algorithms/registry.js` — l'interface construit
 automatiquement ses contrôles.
 

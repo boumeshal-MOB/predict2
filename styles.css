@@ -238,3 +238,6 @@ tr:nth-child(even) td { background: var(--page); }
 .swatch.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--critical); box-shadow: 0 0 0 1px var(--critical); }
 .series-forecast { stroke: #f59e0b; }
 .series-band { stroke: #f59e0b; opacity: .35; stroke-width: 1.3; }
+.series-cleaned { stroke: #16a34a; }
+.series-actual { stroke: var(--series-1); stroke-width: 2.4; }
+.series-backtest { stroke: #8b5cf6; }
