@@ -145,9 +145,8 @@ function knnValues(values, { horizon, windowSize, k }) {
   for (let h = 0; h < horizon; h++) {
     const target = history.slice(-windowSize);
     const candidates = [];
-    for (let j = windowSize; j < y.length - h; j++) {
-      const futureIdx = j + h;
-      if (futureIdx < y.length) candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[futureIdx] });
+    for (let j = windowSize; j < y.length; j++) {
+      candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[j] });
     }
     candidates.sort((a, b) => a.d - b.d);
     const pick = candidates.slice(0, Math.min(k, candidates.length));
@@ -228,7 +227,8 @@ function buildResult(series, cleaned, modelRun, horizon) {
   let backtest = null;
   if (cleaned.values.length > backtestHorizon + 2) {
     const split = cleaned.values.length - backtestHorizon;
-    const bt = modelRun(cleaned.values.slice(0, split), backtestHorizon);
+    const trainCleaned = cleanAberrantValues(series.slice(0, split).map((p) => p.value));
+    const bt = modelRun(trainCleaned.values, backtestHorizon);
     const actual = series.slice(split).map((p) => p.value);
     const errors = actual.map((v, i) => v - bt.forecast[i]).filter(Number.isFinite);
     backtest = {
