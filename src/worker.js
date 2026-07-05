@@ -9,9 +9,19 @@ self.onmessage = (e) => {
     if (!model) throw new Error(`Modèle inconnu : ${modelId}`);
     const t0 = performance.now();
     const out = model.run(series, params);
+    if (model.kind === "forecast") {
+      self.postMessage({
+        ok: true,
+        kind: "forecast",
+        ...out,
+        elapsedMs: Math.round(performance.now() - t0),
+      });
+      return;
+    }
     const anomalies = [...out.anomalies].sort((a, b) => a - b);
     self.postMessage({
       ok: true,
+      kind: "anomaly",
       anomalies,
       trend: out.trend ?? null,
       warning: out.warning ?? null,

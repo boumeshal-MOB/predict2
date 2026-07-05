@@ -1,9 +1,10 @@
 import { parseCsv } from "./csv.js";
 import { MODELS, defaultParams } from "./algorithms/registry.js";
 import { createChart, cleanSeries } from "./charts.js";
+import { defaultDayHorizon } from "./algorithms/forecast.js";
 
 const $ = (sel) => document.querySelector(sel);
-const state = { data: null, modelId: "zscore", params: {}, result: null };
+const state = { data: null, modelId: "zscore", params: {}, result: null, visible: {} };
 
 // Chart controllers (created lazily, reused across renders).
 let chartMain = null;
@@ -105,17 +106,18 @@ function buildParamControls() {
     const range = document.createElement("input");
     range.type = "range";
     range.id = `p-${p.key}`;
+    const def = p.default === "auto_day" && state.data ? defaultDayHorizon(state.data.series) : p.default;
     range.min = p.min;
     range.max = p.max;
     range.step = p.step;
-    range.value = p.default;
+    range.value = def;
     const num = document.createElement("input");
     num.type = "number";
     num.className = "num";
     num.min = p.min;
     num.max = p.max;
     num.step = p.step;
-    num.value = p.default;
+    num.value = def;
 
     const sync = (v) => {
       let val = p.type === "int" ? parseInt(v, 10) : parseFloat(v);
@@ -125,6 +127,7 @@ function buildParamControls() {
       range.value = val;
       num.value = val;
     };
+    state.params[p.key] = def;
     range.addEventListener("input", () => sync(range.value));
     num.addEventListener("input", () => sync(num.value));
 
@@ -146,6 +149,7 @@ function handleFile(file) {
       const parsed = parseCsv(String(reader.result));
       state.data = parsed;
       state.result = null;
+      buildParamControls();
       const meta = [
         `${parsed.series.length} points`,
         `colonne « ${parsed.valueColumn} »`,
@@ -172,6 +176,8 @@ function renderPreview() {
   $("#results").hidden = false;
   $("#stats").innerHTML = "";
   $("#anomaly-table").innerHTML = "";
+  const toggles = $("#series-toggles");
+  if (toggles) toggles.innerHTML = "";
   const values = state.data.series.map((p) => p.value);
   const labels = state.data.series.map((p) => p.label);
   $("#chart-title").textContent = "Série DFINAL (aperçu — lancez la détection)";
@@ -196,18 +202,19 @@ function runDetection() {
   if (!state.data) return;
   $("#run").disabled = true;
   $("#run").textContent = "Analyse…";
-  const series = state.data.series.map((p) => ({ index: p.index, t: p.t, value: p.value }));
+  const series = state.data.series.map((p) => ({ index: p.index, t: p.t, value: p.value, label: p.label }));
   const payload = { modelId: state.modelId, series, params: state.params };
 
   const done = (msg) => {
     $("#run").disabled = false;
-    $("#run").textContent = "Lancer la détection";
+    $("#run").textContent = "Lancer l’analyse";
     if (!msg.ok) {
       $("#file-meta").textContent = `Erreur : ${msg.error}`;
       $("#file-meta").classList.add("error");
       return;
     }
     state.result = msg;
+    state.visible = {};
     renderResults(msg);
   };
 
@@ -225,8 +232,13 @@ async function runMainThread(payload, done) {
   try {
     const model = MODELS[payload.modelId];
     const out = model.run(payload.series, payload.params);
+    if (model.kind === "forecast") {
+      done({ ok: true, kind: "forecast", ...out, elapsedMs: 0 });
+      return;
+    }
     done({
       ok: true,
+      kind: "anomaly",
       anomalies: [...out.anomalies].sort((a, b) => a - b),
       trend: out.trend ?? null,
       warning: out.warning ?? null,
@@ -240,23 +252,34 @@ async function runMainThread(payload, done) {
 // ---- Results rendering -----------------------------------------------------
 function renderResults(msg) {
   ensureCharts();
+  if ((msg.kind || MODELS[state.modelId].kind) === "forecast") {
+    renderForecastResults(msg);
+    return;
+  }
   const series = state.data.series;
   const values = series.map((p) => p.value);
   const labels = series.map((p) => p.label);
   const markers = new Set(msg.anomalies);
+  markers.visible = state.visible.anomalies !== false;
   const model = MODELS[state.modelId];
 
   $("#results").hidden = false;
   $("#chart-title").textContent = "Série DFINAL + anomalies détectées";
-  chartMain.setData({ series: [{ values, name: "DFINAL" }], labels, markers });
+  chartMain.setData({ series: [{ id: "original", values, name: "DFINAL", visible: state.visible.original !== false }], labels, markers });
+  renderSeriesToggles([
+    { id: "original", label: "DFINAL", kind: "line" },
+    { id: "anomalies", label: "Anomalies", kind: "dot" },
+    { id: "clean-original", label: "Origine nettoyée", kind: "line" },
+    { id: "cleaned", label: "Nettoyée", kind: "line" },
+  ]);
 
   $("#chart-clean-block").hidden = false;
   $("#chart-clean-title").textContent = "Origine vs série nettoyée";
   const cleaned = cleanSeries(values, markers);
   chartClean.setData({
     series: [
-      { values, name: "Origine", className: "series-line series-ghost", dashed: true },
-      { values: cleaned, name: "Nettoyée", className: "series-line" },
+      { id: "clean-original", values, name: "Origine", className: "series-line series-ghost", dashed: true, visible: state.visible["clean-original"] !== false },
+      { id: "cleaned", values: cleaned, name: "Nettoyée", className: "series-line", visible: state.visible.cleaned !== false },
     ],
     labels,
     markers: null,
@@ -323,6 +346,176 @@ function renderResults(msg) {
     table.appendChild(details);
   }
 }
+function renderSeriesToggles(items, rerender = null) {
+  const wrap = document.querySelector("#series-toggles");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  for (const item of items) {
+    if (!(item.id in state.visible)) state.visible[item.id] = true;
+    const label = document.createElement("label");
+    label.className = "series-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = state.visible[item.id] !== false;
+    input.addEventListener("change", () => {
+      state.visible[item.id] = input.checked;
+      if (rerender) rerender();
+      else if (state.result) renderResults(state.result);
+    });
+    const swatch = document.createElement("span");
+    swatch.className = `swatch ${item.kind || "line"}`;
+    if (item.color) swatch.style.setProperty("--swatch", item.color);
+    label.append(input, swatch, document.createTextNode(item.label));
+    wrap.appendChild(label);
+  }
+}
+
+function renderForecastResults(msg) {
+  const series = state.data.series;
+  const values = series.map((p) => p.value);
+  const cleanedValues = msg.cleaned || values;
+  const futureLabels = msg.forecastLabels || msg.forecast.map((_, i) => `+${i + 1}`);
+  const labels = series.map((p) => p.label).concat(futureLabels);
+  const n = values.length;
+  const h = msg.forecast.length;
+  const padHist = new Array(n).fill(null);
+  const padFuture = new Array(h).fill(null);
+  const hist = values.concat(padFuture);
+  const cleaned = cleanedValues.concat(padFuture);
+  const fitted = (msg.fitted || []).concat(padFuture);
+  const future = padHist.concat(msg.forecast);
+  const futureLower = padHist.concat(msg.lower || []);
+  const futureUpper = padHist.concat(msg.upper || []);
+  const backtestForecast = new Array(n + h).fill(null);
+  const backtestActual = new Array(n + h).fill(null);
+  const backtestLower = new Array(n + h).fill(null);
+  const backtestUpper = new Array(n + h).fill(null);
+  if (msg.backtest) {
+    for (let i = 0; i < msg.backtest.forecast.length; i++) {
+      const idx = msg.backtest.startIndex + i;
+      backtestForecast[idx] = msg.backtest.forecast[i];
+      backtestActual[idx] = msg.backtest.actual[i];
+      if (msg.backtest.lower) backtestLower[idx] = msg.backtest.lower[i];
+      if (msg.backtest.upper) backtestUpper[idx] = msg.backtest.upper[i];
+    }
+  }
+
+  const render = (resetView = true) => {
+    chartMain.setData({
+      series: [
+        { id: "original", values: hist, name: "Originale", visible: state.visible.original !== false },
+        { id: "cleaned", values: cleaned, name: "Nettoyée", className: "series-line series-cleaned", visible: state.visible.cleaned !== false },
+        { id: "fitted", values: fitted, name: "Ajustement", className: "series-line series-ghost", dashed: true, visible: state.visible.fitted !== false },
+        { id: "backtestActual", values: backtestActual, name: "Réel jour J", className: "series-line series-actual", visible: state.visible.backtestActual !== false },
+        { id: "backtestForecast", values: backtestForecast, name: "Prévision jour J", className: "series-line series-backtest", dashed: true, visible: state.visible.backtestForecast !== false },
+        { id: "forecast", values: future, name: "Prévision J+1", className: "series-line series-forecast", dashed: true, visible: state.visible.forecast !== false },
+        { id: "upper", values: futureUpper, name: "Borne haute J+1", className: "series-line series-band", visible: state.visible.band !== false },
+        { id: "lower", values: futureLower, name: "Borne basse J+1", className: "series-line series-band", visible: state.visible.band !== false },
+        { id: "btUpper", values: backtestUpper, name: "Borne haute jour J", className: "series-line series-band", visible: state.visible.backtestBand !== false },
+        { id: "btLower", values: backtestLower, name: "Borne basse jour J", className: "series-line series-band", visible: state.visible.backtestBand !== false },
+      ],
+      labels,
+      markers: null,
+      resetView,
+    });
+  };
+
+  $("#results").hidden = false;
+  $("#chart-title").textContent = "Forecast sur série nettoyée + comparaison dernier jour";
+  $("#chart-clean-block").hidden = true;
+  renderSeriesToggles([
+    { id: "original", label: "Originale", kind: "line" },
+    { id: "cleaned", label: "Nettoyée", kind: "line" },
+    { id: "fitted", label: "Ajustement", kind: "line" },
+    { id: "backtestActual", label: "Réel jour J", kind: "line" },
+    { id: "backtestForecast", label: "Prévision jour J", kind: "line" },
+    { id: "forecast", label: "Prévision J+1", kind: "line" },
+    { id: "band", label: "Bande J+1", kind: "line" },
+    { id: "backtestBand", label: "Bande jour J", kind: "line" },
+  ], () => { render(false); applyYScale(); });
+  render();
+  applyYScale();
+
+  const rmse = msg.metrics?.rmse;
+  const backtestRmse = msg.metrics?.backtestRmse;
+  renderStats([
+    { label: "Points historiques", value: values.length.toLocaleString("fr-FR") },
+    { label: "Horizon", value: `${h.toLocaleString("fr-FR")} pts`, accent: true },
+    { label: "RMSE jour J", value: Number.isFinite(backtestRmse) ? fmtVal(backtestRmse) : "—" },
+    { label: "RMSE ajustement", value: Number.isFinite(rmse) ? fmtVal(rmse) : "—" },
+    { label: "Mesures nettoyées", value: (msg.cleanedOutliers?.length || 0).toLocaleString("fr-FR") },
+    { label: "Temps de calcul", value: `${msg.elapsedMs} ms` },
+  ], msg.warning);
+  renderForecastTable(labels, msg);
+}
+
+function renderStats(stats, warning = null) {
+  const wrap = $("#stats");
+  wrap.innerHTML = "";
+  for (const s of stats) {
+    const tile = document.createElement("div");
+    tile.className = "stat" + (s.accent ? " accent" : "");
+    const v = document.createElement("div");
+    v.className = "stat-val";
+    v.textContent = s.value;
+    const l = document.createElement("div");
+    l.className = "stat-lab";
+    l.textContent = s.label;
+    tile.append(v, l);
+    wrap.appendChild(tile);
+  }
+  if (warning) {
+    const warn = document.createElement("div");
+    warn.className = "stat warn-tile";
+    warn.textContent = warning;
+    wrap.appendChild(warn);
+  }
+}
+
+function renderForecastTable(labels, msg) {
+  const table = $("#anomaly-table");
+  table.innerHTML = "";
+  const details = document.createElement("details");
+  details.open = true;
+  const caption = document.createElement("summary");
+  caption.textContent = "Comparaison jour J et prévision J+1";
+  details.appendChild(caption);
+  const t = document.createElement("table");
+  const head = document.createElement("tr");
+  for (const h of ["Type", "#", "Repère temporel", "Réel", "Prévision", "Borne basse", "Borne haute"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    head.appendChild(th);
+  }
+  t.appendChild(head);
+
+  const addRow = (type, idx, label, actual, forecast, lower, upper) => {
+    const tr = document.createElement("tr");
+    const cells = [type, String(idx + 1), label, Number.isFinite(actual) ? fmtVal(actual) : "—", Number.isFinite(forecast) ? fmtVal(forecast) : "—", Number.isFinite(lower) ? fmtVal(lower) : "—", Number.isFinite(upper) ? fmtVal(upper) : "—"];
+    for (const c of cells) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      tr.appendChild(td);
+    }
+    t.appendChild(tr);
+  };
+
+  if (msg.backtest) {
+    msg.backtest.forecast.forEach((v, i) => {
+      const idx = msg.backtest.startIndex + i;
+      addRow("Jour J", idx, msg.backtest.labels[i] || labels[idx], msg.backtest.actual[i], v, msg.backtest.lower?.[i], msg.backtest.upper?.[i]);
+    });
+  }
+
+  const offset = state.data.series.length;
+  msg.forecast.forEach((v, i) => {
+    addRow("J+1", offset + i, labels[offset + i], null, v, msg.lower?.[i], msg.upper?.[i]);
+  });
+  details.appendChild(t);
+  table.appendChild(details);
+}
+
+
 const fmtVal = (v) => Number(v.toFixed(3)).toLocaleString("fr-FR");
 
 // ---- Wiring ----------------------------------------------------------------

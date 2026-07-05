@@ -226,3 +226,18 @@ td { font-variant-numeric: tabular-nums; }
 tr:nth-child(even) td { background: var(--page); }
 
 .foot { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 28px; }
+
+/* Selectable series controls */
+.series-toggles {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; margin: 10px 2px 0;
+  color: var(--text-secondary); font-size: 13px;
+}
+.series-toggle { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+.series-toggle input { accent-color: var(--series-1); }
+.swatch { --swatch: var(--series-1); display: inline-block; width: 18px; height: 2px; background: var(--swatch); border-radius: 2px; }
+.swatch.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--critical); box-shadow: 0 0 0 1px var(--critical); }
+.series-forecast { stroke: #f59e0b; }
+.series-band { stroke: #f59e0b; opacity: .35; stroke-width: 1.3; }
+.series-cleaned { stroke: #16a34a; }
+.series-actual { stroke: var(--series-1); stroke-width: 2.4; }
+.series-backtest { stroke: #8b5cf6; }

@@ -7,7 +7,8 @@
 //   - multiple overlaid series
 //   - manual or automatic Y scale
 //   - interactive X zoom (wheel), pan (drag) and reset (double-click)
-//   - an onViewChange callback so two charts can share the same X window.
+//   - an onViewChange callback so two charts can share the same X/Y window.
+// Drag pans X and Y; wheel zooms X; Shift+wheel zooms Y.
 
 const SVG = "http://www.w3.org/2000/svg";
 const el = (name, attrs = {}) => {
@@ -56,7 +57,8 @@ export function createChart(container, { onViewChange = null } = {}) {
     markers: null,
     N: 0,
     xDomain: [0, 0],
-    yOverride: null, // null => auto from visible data
+    yDomain: null, // null => auto from visible data
+    yOverride: null, // explicit manual min/max from controls
   };
   let drag = null;
 
@@ -65,7 +67,10 @@ export function createChart(container, { onViewChange = null } = {}) {
     st.labels = labels;
     st.markers = markers;
     st.N = series[0] ? series[0].values.length : 0;
-    if (resetView) st.xDomain = [0, Math.max(0, st.N - 1)];
+    if (resetView) {
+      st.xDomain = [0, Math.max(0, st.N - 1)];
+      st.yDomain = st.yOverride ? [st.yOverride.min, st.yOverride.max] : null;
+    }
     render();
   }
 
@@ -77,10 +82,12 @@ export function createChart(container, { onViewChange = null } = {}) {
 
   function setYDomain(override) {
     st.yOverride = override;
+    st.yDomain = override ? [override.min, override.max] : null;
     render();
   }
 
   function resetZoom() {
+    st.yDomain = st.yOverride ? [st.yOverride.min, st.yOverride.max] : null;
     setXDomain([0, Math.max(0, st.N - 1)]);
   }
 
@@ -110,15 +117,15 @@ export function createChart(container, { onViewChange = null } = {}) {
 
     const x = (i) => M.left + ((i - i0) / span) * PW;
 
-    // Y domain: manual override or auto from the visible window.
+    // Y domain: manual/interactive domain or auto from the visible window.
     let yMin, yMax;
-    if (st.yOverride) {
-      yMin = st.yOverride.min;
-      yMax = st.yOverride.max;
+    if (st.yDomain) {
+      [yMin, yMax] = st.yDomain;
     } else {
       yMin = Infinity;
       yMax = -Infinity;
       for (const s of st.seriesList) {
+        if (s.visible === false) continue;
         for (let i = lo; i <= hi; i++) {
           const v = s.values[i];
           if (Number.isFinite(v)) {
@@ -178,6 +185,7 @@ export function createChart(container, { onViewChange = null } = {}) {
     const plot = el("g", { "clip-path": `url(#${clipId})` });
 
     for (const s of st.seriesList) {
+      if (s.visible === false) continue;
       let d = "";
       let pen = false;
       for (let i = lo; i <= hi; i++) {
@@ -194,8 +202,8 @@ export function createChart(container, { onViewChange = null } = {}) {
     }
 
     // Anomaly markers on the primary (first) series
-    if (st.markers) {
-      const s0 = st.seriesList[0];
+    if (st.markers && st.markers.visible !== false) {
+      const s0 = st.seriesList.find((s) => s.visible !== false) || st.seriesList[0];
       for (const i of st.markers) {
         if (i < lo || i > hi) continue;
         const v = s0.values[i];
@@ -248,6 +256,7 @@ export function createChart(container, { onViewChange = null } = {}) {
       let anchorY = M.top;
       let shown = false;
       st.seriesList.forEach((s, si) => {
+        if (s.visible === false) { hoverDots[si].setAttribute("opacity", 0); return; }
         const v = s.values[i];
         if (!Number.isFinite(v)) { hoverDots[si].setAttribute("opacity", 0); return; }
         const yy = y(v);
@@ -261,7 +270,7 @@ export function createChart(container, { onViewChange = null } = {}) {
         tip.appendChild(row);
       });
 
-      if (st.markers && st.markers.has(i)) {
+      if (st.markers && st.markers.visible !== false && st.markers.has(i)) {
         const flag = document.createElement("div");
         flag.className = "tip-flag";
         flag.textContent = "● anomalie";
@@ -284,6 +293,7 @@ export function createChart(container, { onViewChange = null } = {}) {
     const pan = (evt) => {
       const rect = svg.getBoundingClientRect();
       const dpx = ((evt.clientX - drag.x) / rect.width) * W;
+      const dpy = ((evt.clientY - drag.y) / rect.height) * H;
       const [d0, d1] = drag.dom;
       const sp = d1 - d0;
       const didx = (dpx / PW) * sp;
@@ -291,12 +301,18 @@ export function createChart(container, { onViewChange = null } = {}) {
       let n1 = d1 - didx;
       if (n0 < 0) { n1 -= n0; n0 = 0; }
       if (n1 > N - 1) { n0 -= n1 - (N - 1); n1 = N - 1; if (n0 < 0) n0 = 0; }
+      if (drag.ydom) {
+        const [y0, y1] = drag.ydom;
+        const ysp = y1 - y0 || 1;
+        const dy = (dpy / PH) * ysp;
+        st.yDomain = [y0 + dy, y1 + dy];
+      }
       setXDomain([n0, n1]);
     };
 
     if (N > 1) {
       hit.addEventListener("pointerdown", (e) => {
-        drag = { x: e.clientX, dom: st.xDomain.slice() };
+        drag = { x: e.clientX, y: e.clientY, dom: st.xDomain.slice(), ydom: [ylo, yhi] };
         hit.classList.add("grabbing");
         try { hit.setPointerCapture(e.pointerId); } catch { /* ignore */ }
       });
@@ -312,6 +328,18 @@ export function createChart(container, { onViewChange = null } = {}) {
 
       svg.addEventListener("wheel", (e) => {
         e.preventDefault();
+        if (e.shiftKey) {
+          const rect = svg.getBoundingClientRect();
+          const py = ((e.clientY - rect.top) / rect.height) * H;
+          const cursorVal = yhi - ((py - M.top) / PH) * yspan;
+          const [d0, d1] = st.yDomain || [ylo, yhi];
+          const sp = d1 - d0 || 1;
+          const nsp = e.deltaY < 0 ? sp / ZOOM : sp * ZOOM;
+          const frac = (cursorVal - d0) / sp;
+          st.yDomain = [cursorVal - frac * nsp, cursorVal + (1 - frac) * nsp];
+          render();
+          return;
+        }
         const cursorIdx = pxToIndex(e.clientX);
         const [d0, d1] = st.xDomain;
         const sp = d1 - d0;

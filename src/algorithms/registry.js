@@ -4,6 +4,7 @@
 // the UI builds its controls from this metadata automatically.
 import { detectZScore } from "./zscore.js";
 import { detectIsolationForest } from "./isolationForest.js";
+import { forecastKnn, forecastMlp } from "./forecast.js";
 
 export const MODELS = {
   zscore: {
@@ -65,6 +66,34 @@ export const MODELS = {
       },
     ],
     run: detectIsolationForest,
+  },
+  knn_forecast: {
+    id: "knn_forecast",
+    label: "Prévision k-NN par analogues",
+    kind: "forecast",
+    description:
+      "Cherche dans l'historique les fenêtres les plus similaires à la situation actuelle et moyenne leurs suites futures.",
+    params: [
+      { key: "horizon", label: "Horizon (points)", type: "int", min: 1, max: 2880, step: 1, default: "auto_day", help: "Par défaut : une journée calculée à partir du pas temporel médian." },
+      { key: "window_size", label: "Fenêtre d'apprentissage", type: "int", min: 2, max: 336, step: 1, default: 24, help: "Nombre de points récents comparés aux motifs passés." },
+      { key: "neighbors", label: "Voisins", type: "int", min: 1, max: 50, step: 1, default: 5, help: "Nombre de motifs similaires moyennés." },
+    ],
+    run: forecastKnn,
+  },
+  mlp_forecast: {
+    id: "mlp_forecast",
+    label: "Prévision IA — réseau neuronal MLP",
+    kind: "forecast",
+    description:
+      "Petit réseau neuronal auto-régressif entraîné localement dans le navigateur sur des fenêtres glissantes.",
+    params: [
+      { key: "horizon", label: "Horizon (points)", type: "int", min: 1, max: 2880, step: 1, default: "auto_day", help: "Par défaut : une journée calculée à partir du pas temporel médian." },
+      { key: "window_size", label: "Fenêtre d'apprentissage", type: "int", min: 2, max: 336, step: 1, default: 24, help: "Nombre de valeurs passées fournies au réseau." },
+      { key: "hidden_units", label: "Neurones cachés", type: "int", min: 2, max: 64, step: 1, default: 12, help: "Capacité du réseau : plus haut = plus souple mais plus lent." },
+      { key: "epochs", label: "Époques", type: "int", min: 10, max: 1000, step: 10, default: 200, help: "Nombre de passes d'entraînement local." },
+      { key: "learning_rate", label: "Taux d'apprentissage", type: "float", min: 0.0005, max: 0.1, step: 0.0005, default: 0.01, help: "Vitesse d'ajustement des poids du réseau." },
+    ],
+    run: forecastMlp,
   },
 };
 
