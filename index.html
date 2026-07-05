@@ -40,7 +40,7 @@
           <p id="model-desc" class="help"></p>
         </div>
         <div id="params" class="params-grid"></div>
-        <button id="run" class="run-btn" disabled>Lancer la détection</button>
+        <button id="run" class="run-btn" disabled>Lancer l’analyse</button>
       </section>
 
       <section id="results" class="panel" hidden>
@@ -51,21 +51,18 @@
         <div id="stats" class="stats-row"></div>
 
         <div class="viz-controls">
-          <button id="reset-zoom" class="ctl-btn" type="button">⤢ Réinitialiser le zoom</button>
+          <button id="reset-zoom" class="ctl-btn" type="button">⤢ Réinitialiser la vue</button>
           <div class="scale-group">
             <label class="chk"><input type="checkbox" id="yauto" checked /> Échelle Y auto</label>
             <label class="mini">min <input type="number" id="ymin" class="num" step="any" disabled /></label>
             <label class="mini">max <input type="number" id="ymax" class="num" step="any" disabled /></label>
           </div>
-          <p class="ctl-hint">Molette&nbsp;: zoom · glisser&nbsp;: déplacer · double-clic&nbsp;: réinitialiser</p>
+          <p class="ctl-hint">Molette&nbsp;: zoom X · Maj+molette&nbsp;: zoom Y · glisser&nbsp;: déplacer X/Y · double-clic&nbsp;: réinitialiser</p>
         </div>
 
         <h3 id="chart-title" class="chart-heading"></h3>
         <div class="chart-wrap"><div id="chart-main"></div></div>
-        <div class="legend">
-          <span class="lg"><span class="lg-line"></span>DFINAL</span>
-          <span class="lg"><span class="lg-dot"></span>anomalie détectée</span>
-        </div>
+        <div id="series-toggles" class="series-toggles" aria-label="Séries affichées"></div>
 
         <div id="chart-clean-block" hidden>
           <h3 id="chart-clean-title" class="chart-heading"></h3>
