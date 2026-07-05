@@ -4,6 +4,7 @@
 // the UI builds its controls from this metadata automatically.
 import { detectZScore } from "./zscore.js";
 import { detectIsolationForest } from "./isolationForest.js";
+import { detectCusum } from "./cusum.js";
 import { forecastKnn, forecastMlp } from "./forecast.js";
 
 export const MODELS = {
@@ -66,6 +67,33 @@ export const MODELS = {
       },
     ],
     run: detectIsolationForest,
+  },
+  cusum_drift: {
+    id: "cusum_drift",
+    label: "Détection de dérive (CUSUM)",
+    kind: "anomaly",
+    description:
+      "Somme cumulée des écarts à un niveau de référence robuste. Met en évidence les dérives lentes et persistantes qu'un seuil ponctuel (Z-Score, Isolation Forest) ne voit pas.",
+    tips: [
+      "Idéal pour repérer un glissement progressif du niveau (encrassement de capteur, dérive de calibration, colmatage…) invisible point par point.",
+      "Baissez « Seuil d'alarme h » ou « Sensibilité k » pour détecter des dérives plus faibles, au prix de possibles fausses alertes.",
+      "La « Fenêtre de référence » doit couvrir une période que vous jugez normale : c'est le niveau auquel tout le reste est comparé.",
+    ],
+    params: [
+      {
+        key: "baseline_window", label: "Fenêtre de référence (points)", type: "int", min: 5, max: 2000, step: 1, default: 100,
+        help: "Nombre de premiers points définissant le niveau « normal » de référence (médiane + dispersion robuste). Prenez une période stable et représentative.",
+      },
+      {
+        key: "slack_k", label: "Sensibilité k (en σ)", type: "float", min: 0, max: 3, step: 0.1, default: 0.5,
+        help: "Marge ignorée à chaque pas, en écarts-types. Plus bas = détecte des dérives plus fines mais réagit au bruit ; 0,5 détecte une dérive d'environ 1 σ.",
+      },
+      {
+        key: "threshold_h", label: "Seuil d'alarme h (en σ)", type: "float", min: 1, max: 12, step: 0.5, default: 5,
+        help: "Niveau que la somme cumulée doit dépasser pour déclencher une alarme. Plus haut = moins de fausses alertes mais détection plus tardive.",
+      },
+    ],
+    run: detectCusum,
   },
   knn_forecast: {
     id: "knn_forecast",

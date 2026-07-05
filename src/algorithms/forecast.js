@@ -1,6 +1,7 @@
 // Dependency-free forecasting models that run fully in the browser.
 // Forecasting is trained on an automatically cleaned series so short spikes /
 // aberrant measurements do not dominate the prediction.
+import { detectZScore } from "./zscore.js";
 
 function finiteSeries(series) {
   return series.map((p, i) => ({ ...p, i })).filter((p) => Number.isFinite(p.value));
@@ -74,21 +75,14 @@ function interpolateRemoved(values, removed) {
   return out;
 }
 
-function cleanAberrantValues(values) {
-  const win = Math.max(5, Math.min(25, Math.floor(values.length / 20) * 2 + 1));
-  const half = Math.floor(win / 2);
-  const residuals = values.map((v, i) => {
-    const lo = Math.max(0, i - half);
-    const hi = Math.min(values.length, i + half + 1);
-    return v - median(values.slice(lo, hi));
-  });
-  const center = median(residuals);
-  const mad = median(residuals.map((r) => Math.abs(r - center))) || std(residuals) / 1.4826 || 1;
-  const limit = Math.max(6 * 1.4826 * mad, std(values) * 3 || 0);
-  const removed = new Set();
-  residuals.forEach((r, i) => {
-    if (Math.abs(r - center) > limit) removed.add(i);
-  });
+// Clean the series with the robust Z-Score model (polynomial trend + MAD) then
+// interpolate the flagged points. MAD is not inflated by the very spikes we want
+// to remove, so this neutralises aberrant peaks that a std-based rule misses —
+// giving the forecast a faithful baseline to learn from.
+function cleanWithZScore(points) {
+  const values = points.map((p) => p.value);
+  const local = points.map((p, i) => ({ index: i, t: Number.isFinite(p.t) ? p.t : i, value: p.value }));
+  const removed = detectZScore(local, { degree: 2, threshold: 3 }).anomalies;
   return { values: interpolateRemoved(values, removed), indices: [...removed].sort((a, b) => a - b) };
 }
 
@@ -227,7 +221,7 @@ function buildResult(series, cleaned, modelRun, horizon) {
   let backtest = null;
   if (cleaned.values.length > backtestHorizon + 2) {
     const split = cleaned.values.length - backtestHorizon;
-    const trainCleaned = cleanAberrantValues(series.slice(0, split).map((p) => p.value));
+    const trainCleaned = cleanWithZScore(series.slice(0, split));
     const bt = modelRun(trainCleaned.values, backtestHorizon);
     const actual = series.slice(split).map((p) => p.value);
     const errors = actual.map((v, i) => v - bt.forecast[i]).filter(Number.isFinite);
@@ -262,7 +256,7 @@ export function forecastKnn(series, params) {
   const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(cleanSeries), 10));
   const windowSize = Math.max(2, parseInt(params.window_size ?? 24, 10));
   const k = Math.max(1, parseInt(params.neighbors ?? 5, 10));
-  const cleaned = cleanAberrantValues(cleanSeries.map((p) => p.value));
+  const cleaned = cleanWithZScore(cleanSeries);
   return buildResult(cleanSeries, cleaned, (values, h) => knnValues(values, { horizon: h, windowSize, k }), horizon);
 }
 
@@ -273,6 +267,6 @@ export function forecastMlp(series, params) {
   const hidden = Math.max(2, parseInt(params.hidden_units ?? 12, 10));
   const epochs = Math.max(1, parseInt(params.epochs ?? 200, 10));
   const lr = Math.max(0.0001, parseFloat(params.learning_rate ?? 0.01));
-  const cleaned = cleanAberrantValues(cleanSeries.map((p) => p.value));
+  const cleaned = cleanWithZScore(cleanSeries);
   return buildResult(cleanSeries, cleaned, (values, h) => mlpValues(values, { horizon: h, windowSize, hidden, epochs, lr }), horizon);
 }
