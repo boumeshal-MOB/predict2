@@ -38,6 +38,7 @@
           <label for="model">Modèle</label>
           <select id="model"></select>
           <p id="model-desc" class="help"></p>
+          <div id="model-tips" class="tips-box" hidden></div>
         </div>
         <div id="params" class="params-grid"></div>
         <button id="run" class="run-btn" disabled>Lancer l’analyse</button>
@@ -67,11 +68,11 @@
         <div id="chart-clean-block" hidden>
           <h3 id="chart-clean-title" class="chart-heading"></h3>
           <div class="chart-wrap"><div id="chart-clean"></div></div>
-          <div class="legend">
+          <div id="chart-clean-legend" class="legend">
             <span class="lg"><span class="lg-line ghost"></span>Origine (avec anomalies)</span>
             <span class="lg"><span class="lg-line"></span>Nettoyée</span>
           </div>
-          <p class="help">Les points signalés sont remplacés par interpolation linéaire entre leurs voisins sains.</p>
+          <p id="chart-clean-help" class="help">Les points signalés sont remplacés par interpolation linéaire entre leurs voisins sains.</p>
         </div>
 
         <div id="anomaly-table" class="table-block"></div>

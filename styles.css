@@ -115,6 +115,17 @@ select, .num, input[type="number"] {
 select { width: 100%; max-width: 420px; }
 .help { color: var(--text-secondary); font-size: 12.5px; margin: 6px 0 0; }
 
+.tips-box {
+  margin: 10px 0 4px; padding: 12px 14px;
+  background: var(--accent-soft); border-radius: 10px;
+}
+.tips-box .tips-title {
+  display: block; font-size: 12.5px; font-weight: 700;
+  color: var(--series-1); margin-bottom: 4px;
+}
+.tips-box ul { margin: 0; padding-left: 18px; }
+.tips-box li { font-size: 12.5px; color: var(--text-secondary); margin: 3px 0; }
+
 .params-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 18px 26px; margin: 8px 0 20px;
@@ -203,6 +214,7 @@ input[type="range"] { flex: 1; accent-color: var(--series-1); }
 .tip-flag { color: var(--critical); font-weight: 600; margin-top: 3px; }
 
 .legend { display: flex; gap: 20px; margin: 10px 2px 0; font-size: 13px; color: var(--text-secondary); }
+.legend[hidden] { display: none; }
 .lg { display: inline-flex; align-items: center; gap: 7px; }
 .lg-line { width: 18px; height: 2px; background: var(--series-1); border-radius: 2px; }
 .lg-line.ghost { background: var(--muted); opacity: .8; }
