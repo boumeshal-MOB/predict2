@@ -6,8 +6,10 @@
 //   series: [{ index, t, value, label }]  (index = position in kept series)
 
 const TIME_NAMES = [
-  "timestamp", "datetime", "date", "time", "horodatage", "heure", "temps",
+  "datetime", "timestamp", "horodatage", "date", "heure", "temps", "time",
 ];
+// The target column is matched by substring so real headers like "MP1\DFINAL"
+// (with a device prefix) are found without an exact-name requirement.
 const VALUE_NAME = "dfinal";
 
 function detectDelimiter(sample) {
@@ -59,31 +61,37 @@ function toNumber(raw, delim) {
 
 function parseDate(raw) {
   if (!raw) return null;
-  const s = raw.trim();
-  // ISO or anything Date understands.
-  let d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d;
-  // DD/MM/YYYY [HH:MM[:SS]]
-  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  const s = raw.trim().replace(/^"|"$/g, "");
+  // DD/MM/YYYY [HH:MM[:SS]] — European, slash-separated. Checked BEFORE native
+  // Date because Date() would misread "10/04/2026" as US MM/DD.
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (m) {
     const [, dd, mm, yy, hh = "0", mi = "0", ss = "0"] = m;
     const year = yy.length === 2 ? 2000 + Number(yy) : Number(yy);
-    d = new Date(Date.UTC(year, Number(mm) - 1, Number(dd), +hh, +mi, +ss));
+    const d = new Date(Date.UTC(year, Number(mm) - 1, Number(dd), +hh, +mi, +ss));
     if (!Number.isNaN(d.getTime())) return d;
   }
-  return null;
+  // ISO (YYYY-MM-DD…) and anything else the engine understands.
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export function parseCsv(text) {
   const clean = text.replace(/^﻿/, ""); // strip BOM
-  const delim = detectDelimiter(clean);
   const lines = clean.split(/\r?\n/).filter((l) => l.trim().length);
   if (lines.length < 2) throw new Error("Le fichier ne contient pas assez de lignes.");
 
-  const header = splitLine(lines[0], delim);
+  // The header isn't always line 1: exported CSVs often start with metadata
+  // rows. The header is the first line that actually names the DFINAL column.
+  let headerIdx = lines.findIndex((l) => /dfinal/i.test(l));
+  if (headerIdx === -1) headerIdx = 0;
+
+  const delim = detectDelimiter(lines[headerIdx]);
+  const header = splitLine(lines[headerIdx], delim);
   const lower = header.map((h) => h.toLowerCase());
 
-  const valueCol = lower.indexOf(VALUE_NAME);
+  // Substring match so "MP1\DFINAL" (device-prefixed) is found.
+  const valueCol = lower.findIndex((h) => h.includes(VALUE_NAME));
   if (valueCol === -1) {
     throw new Error(
       `Colonne « DFINAL » introuvable. Colonnes détectées : ${header.join(", ")}`
@@ -91,7 +99,7 @@ export function parseCsv(text) {
   }
   let timeCol = -1;
   for (const name of TIME_NAMES) {
-    const idx = lower.indexOf(name);
+    const idx = lower.findIndex((h) => h.includes(name));
     if (idx !== -1) {
       timeCol = idx;
       break;
@@ -100,7 +108,9 @@ export function parseCsv(text) {
 
   const raw = [];
   let firstDate = null;
-  for (let r = 1; r < lines.length; r++) {
+  // Rows after the header. A units/format row (e.g. "mm") right below the header
+  // is skipped automatically because its DFINAL cell isn't numeric.
+  for (let r = headerIdx + 1; r < lines.length; r++) {
     const cells = splitLine(lines[r], delim);
     const value = toNumber(cells[valueCol], delim);
     let date = null;

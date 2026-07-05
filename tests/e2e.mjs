@@ -15,8 +15,9 @@ page.on("pageerror", (e) => errors.push("PAGEERROR: " + e.message));
 
 await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
 
-// Upload the sample CSV.
-await page.setInputFiles("#file", join(here, "sample.csv"));
+// Upload the CSV (default: realistic sample; pass a filename to override).
+const csvFile = process.argv[2] || "sample.csv";
+await page.setInputFiles("#file", join(here, csvFile));
 await page.waitForSelector("#file-meta:not(:empty)");
 const meta = await page.textContent("#file-meta");
 console.log("meta:", meta.trim());

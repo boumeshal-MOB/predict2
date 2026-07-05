@@ -72,10 +72,15 @@ export function renderChart(container, cfg) {
 
   // X ticks (~6 evenly spaced labels)
   const xTickCount = Math.min(6, N);
+  const seen = new Set();
   for (let k = 0; k < xTickCount; k++) {
     const i = Math.round((k / Math.max(1, xTickCount - 1)) * (N - 1));
+    if (seen.has(i)) continue; // avoid duplicate ticks on tiny series
+    seen.add(i);
     const xx = x(i);
-    const lbl = el("text", { x: xx, y: H - 12, class: "axis-label", "text-anchor": "middle" });
+    // Anchor the extremes inward so edge labels are never clipped.
+    const anchor = i === 0 ? "start" : i === N - 1 ? "end" : "middle";
+    const lbl = el("text", { x: xx, y: H - 12, class: "axis-label", "text-anchor": anchor });
     lbl.textContent = labels[i] ?? String(i + 1);
     svg.appendChild(lbl);
   }
