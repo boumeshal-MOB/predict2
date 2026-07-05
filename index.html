@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Predict 2 — Détection d'anomalies</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>📈</text></svg>" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="viz-root">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">📈</span>
+        <div>
+          <h1>Predict&nbsp;2</h1>
+          <p class="tagline">Détection d'anomalies sur séries temporelles — 100&nbsp;% dans votre navigateur</p>
+        </div>
+      </div>
+      <button id="theme" class="theme-btn" title="Basculer clair/sombre" aria-label="Basculer le thème">☾</button>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2 class="step"><span>1</span> Charger un CSV</h2>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choisir ou déposer un fichier CSV">
+          <div class="dz-icon">⬆</div>
+          <p><strong>Déposez un CSV</strong> ou cliquez pour choisir</p>
+          <p class="hint">Seule la colonne <code>DFINAL</code> est analysée. Les autres colonnes sont ignorées.</p>
+          <input id="file" type="file" accept=".csv,text/csv" hidden />
+        </div>
+        <p id="file-meta" class="file-meta"></p>
+      </section>
+
+      <section class="panel">
+        <h2 class="step"><span>2</span> Choisir le modèle &amp; les paramètres</h2>
+        <div class="field">
+          <label for="model">Modèle</label>
+          <select id="model"></select>
+          <p id="model-desc" class="help"></p>
+        </div>
+        <div id="params" class="params-grid"></div>
+        <button id="run" class="run-btn" disabled>Lancer la détection</button>
+      </section>
+
+      <section id="results" class="panel" hidden>
+        <h2 class="step"><span>3</span> Résultats</h2>
+        <div id="stats" class="stats-row"></div>
+
+        <h3 id="chart-title" class="chart-heading"></h3>
+        <div class="chart-wrap"><div id="chart-main"></div></div>
+        <div class="legend">
+          <span class="lg"><span class="lg-line"></span>DFINAL</span>
+          <span class="lg"><span class="lg-dot"></span>anomalie détectée</span>
+        </div>
+
+        <div id="chart-clean-block" hidden>
+          <h3 id="chart-clean-title" class="chart-heading"></h3>
+          <div class="chart-wrap"><div id="chart-clean"></div></div>
+          <p class="help">Les points signalés sont remplacés par interpolation linéaire entre leurs voisins sains.</p>
+        </div>
+
+        <div id="anomaly-table" class="table-block"></div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>Les calculs s'exécutent localement (Web Worker). Aucune donnée n'est envoyée sur un serveur.</p>
+    </footer>
+  </div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
