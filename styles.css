@@ -199,6 +199,7 @@ input[type="range"] { flex: 1; accent-color: var(--series-1); }
 .series-ghost { stroke: var(--muted); stroke-width: 1.5; opacity: .75; }
 .marker { fill: var(--critical); stroke: var(--surface-1); stroke-width: 2; }
 .marker-drift { fill: #7c3aed; stroke: var(--surface-1); stroke-width: 2; }
+.drift-line { stroke: #7c3aed; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .crosshair { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
 .hover-dot { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; pointer-events: none; }
 .hit { cursor: grab; touch-action: none; }

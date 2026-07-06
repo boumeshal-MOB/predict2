@@ -79,7 +79,7 @@ function interpolateRemoved(values, removed) {
 // interpolate the flagged points. MAD is not inflated by the very spikes we want
 // to remove, so this neutralises aberrant peaks that a std-based rule misses —
 // giving the forecast a faithful baseline to learn from.
-function cleanWithZScore(points) {
+export function cleanWithZScore(points) {
   const values = points.map((p) => p.value);
   const local = points.map((p, i) => ({ index: i, t: Number.isFinite(p.t) ? p.t : i, value: p.value }));
   const removed = detectZScore(local, { degree: 2, threshold: 3 }).anomalies;

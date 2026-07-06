@@ -417,11 +417,12 @@ function renderForecastResults(msg) {
     }
   }
 
-  // Canari also surfaces anomalies + drift onsets and its "fitted" line IS the drift.
+  // Canari runs on the Z-Score-cleaned signal: no red anomaly dots (that's a
+  // separate concern), just the level line + drift onsets as vertical lines.
   const isCanari = Array.isArray(msg.driftStarts);
-  const markers = Array.isArray(msg.anomalies) ? new Set(msg.anomalies) : null;
+  const markers = !isCanari && Array.isArray(msg.anomalies) ? new Set(msg.anomalies) : null;
   const driftMarkers = isCanari ? new Set(msg.driftStarts) : null;
-  const fittedName = isCanari ? "Dérive (niveau)" : "Ajustée";
+  const fittedName = isCanari ? "Niveau estimé" : "Ajustée";
 
   const render = (resetView = true) => {
     chartClean.setData({
@@ -444,11 +445,11 @@ function renderForecastResults(msg) {
 
   $("#chart-clean-block").hidden = false;
   $("#chart-clean-title").textContent = isCanari
-    ? "Dérive, anomalies (rouge), départs de dérive (violet) et prévision"
+    ? "Niveau estimé, départs de dérive (lignes violettes) et prévision"
     : "Ajustement, prévision J+1 et prévision du jour J (backtest)";
   $("#chart-clean-legend").hidden = true;
   $("#chart-clean-help").textContent = isCanari
-    ? "Ligne verte = dérive estimée (niveau robuste aux pics). Points rouges = anomalies, points violets = débuts de dérive. Jaune = prévision J+1, magenta = prévision du jour J (backtest sur données réelles)."
+    ? "Analyse faite sur la série nettoyée des anomalies (Z-Score). Ligne verte = niveau de fond estimé. Ligne verticale violette = début d'une dérive confirmée. Jaune = prévision J+1, magenta = prévision du jour J (backtest sur données réelles)."
     : "Comparez la « Prévision jour J » (magenta) aux vraies valeurs (« Origine », bleu) pour juger de la fiabilité du modèle avant de vous fier à la « Prévision J+1 » (jaune).";
   renderSeriesToggles([
     { id: "original", label: "Origine", kind: "line" },
@@ -468,11 +469,9 @@ function renderForecastResults(msg) {
     { label: "RMSE ajustement", value: Number.isFinite(rmse) ? fmtVal(rmse) : "—" },
   ];
   if (isCanari) {
-    stats.push({ label: "Anomalies", value: (msg.anomalies?.length || 0).toLocaleString("fr-FR") });
-    stats.push({ label: "Départs de dérive", value: msg.driftStarts.length.toLocaleString("fr-FR") });
-  } else {
-    stats.push({ label: "Mesures nettoyées", value: (msg.cleanedOutliers?.length || 0).toLocaleString("fr-FR") });
+    stats.push({ label: "Départs de dérive", value: msg.driftStarts.length.toLocaleString("fr-FR"), accent: msg.driftStarts.length > 0 });
   }
+  stats.push({ label: "Mesures nettoyées", value: (msg.cleanedOutliers?.length || 0).toLocaleString("fr-FR") });
   stats.push({ label: "Temps de calcul", value: `${msg.elapsedMs} ms` });
   renderStats(stats, msg.warning);
   $("#anomaly-table").innerHTML = "";

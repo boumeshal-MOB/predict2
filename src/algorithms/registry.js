@@ -160,14 +160,14 @@ export const MODELS = {
   },
   canari: {
     id: "canari",
-    label: "Canari — modèle bayésien (dérive + anomalies + prévision)",
+    label: "Canari — dérive et prévision (bayésien)",
     kind: "forecast",
     description:
-      "Modèle espace-d'état bayésien (niveau + tendance, filtre de Kalman) inspiré de Canari. Estime une ligne de fond robuste (la dérive), détecte en ligne les anomalies (erreur de prévision à 1 pas) et le début des dérives, puis prévoit.",
+      "Modèle espace-d'état bayésien (niveau + tendance, filtre de Kalman) inspiré de Canari. Analyse la série une fois nettoyée des anomalies (Z-Score) : estime le niveau de fond, marque le début des dérives d'une ligne verticale, et prévoit. La détection d'anomalies reste séparée (modèles Z-Score / Isolation Forest).",
     tips: [
-      "Le tout-en-un : ligne de dérive (niveau), anomalies (rouge), débuts de dérive (violet) et prévision, sur un seul modèle.",
-      "Baissez « Réactivité tendance » pour une dérive plus lisse ; montez-la pour suivre des changements de pente plus rapides.",
-      "Baissez le « Seuil d'anomalie » pour signaler des écarts plus fins (plus d'alertes).",
+      "Spécialisé dérive + prévision : il travaille sur le signal débruité, sans se mêler de la détection d'anomalies (faite à part).",
+      "Baissez la « Sensibilité de dérive » pour marquer des glissements plus fins ; montez-la pour ne garder que les dérives franches.",
+      "Baissez « Réactivité niveau » pour une ligne de fond plus lisse ; montez-la pour qu'elle colle davantage au signal.",
     ],
     params: [
       {
@@ -183,8 +183,8 @@ export const MODELS = {
         help: "Vitesse à laquelle la pente (dérive) peut changer. Plus haut = détecte des changements de dérive plus rapides mais plus sensible au bruit.",
       },
       {
-        key: "anomaly_threshold", label: "Seuil d'anomalie (en σ)", type: "float", min: 1, max: 12, step: 0.1, default: 5,
-        help: "Un point est une anomalie si son erreur de prévision à 1 pas dépasse ce nombre d'écarts-types. Plus bas = plus d'anomalies signalées.",
+        key: "drift_sensitivity", label: "Sensibilité de dérive (en σ)", type: "float", min: 0.5, max: 6, step: 0.1, default: 2,
+        help: "Écart (en σ) que la moyenne journalière du niveau doit dépasser pour tracer une ligne de dérive. Plus bas = détecte des dérives plus fines mais risque plus de fausses lignes ; plus haut = seules les dérives franches sont marquées.",
       },
     ],
     run: forecastCanari,

@@ -4,5 +4,5 @@ tests/fixture.json
 tests/sample.csv
 tests/drift.csv
 __pycache__/
-tests/real.csv
+tests/real*.csv
 tests/real_*.csv

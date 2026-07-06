@@ -213,14 +213,12 @@ export function createChart(container, { onViewChange = null } = {}) {
       }
     }
 
-    // Drift-onset markers (distinct colour)
+    // Drift-onset markers = full-height vertical lines
     if (st.driftMarkers) {
-      const s0 = st.seriesList.find((s) => s.visible !== false) || st.seriesList[0];
       for (const i of st.driftMarkers) {
         if (i < lo || i > hi) continue;
-        const v = s0.values[i];
-        if (!Number.isFinite(v)) continue;
-        plot.appendChild(el("circle", { cx: x(i), cy: y(v), r: 6, class: "marker-drift" }));
+        const xx = x(i);
+        plot.appendChild(el("line", { x1: xx, y1: M.top, x2: xx, y2: M.top + PH, class: "drift-line" }));
       }
     }
     svg.appendChild(plot);
