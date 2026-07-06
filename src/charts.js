@@ -62,10 +62,11 @@ export function createChart(container, { onViewChange = null } = {}) {
   };
   let drag = null;
 
-  function setData({ series, labels = [], markers = null, resetView = true }) {
+  function setData({ series, labels = [], markers = null, driftMarkers = null, resetView = true }) {
     st.seriesList = series;
     st.labels = labels;
     st.markers = markers;
+    st.driftMarkers = driftMarkers;
     st.N = series[0] ? series[0].values.length : 0;
     if (resetView) {
       st.xDomain = [0, Math.max(0, st.N - 1)];
@@ -209,6 +210,17 @@ export function createChart(container, { onViewChange = null } = {}) {
         const v = s0.values[i];
         if (!Number.isFinite(v)) continue;
         plot.appendChild(el("circle", { cx: x(i), cy: y(v), r: 5, class: "marker" }));
+      }
+    }
+
+    // Drift-onset markers (distinct colour)
+    if (st.driftMarkers) {
+      const s0 = st.seriesList.find((s) => s.visible !== false) || st.seriesList[0];
+      for (const i of st.driftMarkers) {
+        if (i < lo || i > hi) continue;
+        const v = s0.values[i];
+        if (!Number.isFinite(v)) continue;
+        plot.appendChild(el("circle", { cx: x(i), cy: y(v), r: 6, class: "marker-drift" }));
       }
     }
     svg.appendChild(plot);

@@ -94,7 +94,7 @@ function fitBand(values, fitted) {
   return std(residuals) || std(values) || 0;
 }
 
-function futureLabels(series, horizon) {
+export function futureLabels(series, horizon) {
   const step = medianStep(series);
   const last = series[series.length - 1];
   const lastDate = last.label ? new Date(String(last.label).replace(" ", "T") + "Z") : null;

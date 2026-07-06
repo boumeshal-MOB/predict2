@@ -6,6 +6,7 @@ import { detectZScore } from "./zscore.js";
 import { detectIsolationForest } from "./isolationForest.js";
 import { detectCusum } from "./cusum.js";
 import { forecastKnn, forecastMlp } from "./forecast.js";
+import { forecastCanari } from "./canari.js";
 
 export const MODELS = {
   zscore: {
@@ -156,6 +157,37 @@ export const MODELS = {
       },
     ],
     run: forecastMlp,
+  },
+  canari: {
+    id: "canari",
+    label: "Canari — modèle bayésien (dérive + anomalies + prévision)",
+    kind: "forecast",
+    description:
+      "Modèle espace-d'état bayésien (niveau + tendance, filtre de Kalman) inspiré de Canari. Estime une ligne de fond robuste (la dérive), détecte en ligne les anomalies (erreur de prévision à 1 pas) et le début des dérives, puis prévoit.",
+    tips: [
+      "Le tout-en-un : ligne de dérive (niveau), anomalies (rouge), débuts de dérive (violet) et prévision, sur un seul modèle.",
+      "Baissez « Réactivité tendance » pour une dérive plus lisse ; montez-la pour suivre des changements de pente plus rapides.",
+      "Baissez le « Seuil d'anomalie » pour signaler des écarts plus fins (plus d'alertes).",
+    ],
+    params: [
+      {
+        key: "horizon", label: "Horizon (points)", type: "int", min: 1, max: 2880, step: 1, default: "auto_day",
+        help: "Nombre de points à prévoir. Par défaut, une journée calculée à partir du pas temporel médian.",
+      },
+      {
+        key: "level_reactivity", label: "Réactivité niveau", type: "float", min: 0.001, max: 1, step: 0.001, default: 0.1,
+        help: "Vitesse à laquelle la ligne de fond suit le signal. Plus haut = suit de près (moins lisse) ; plus bas = ligne plus lisse.",
+      },
+      {
+        key: "slope_reactivity", label: "Réactivité tendance", type: "float", min: 0.0001, max: 0.5, step: 0.0001, default: 0.005,
+        help: "Vitesse à laquelle la pente (dérive) peut changer. Plus haut = détecte des changements de dérive plus rapides mais plus sensible au bruit.",
+      },
+      {
+        key: "anomaly_threshold", label: "Seuil d'anomalie (en σ)", type: "float", min: 1, max: 8, step: 0.1, default: 3.5,
+        help: "Un point est une anomalie si son erreur de prévision à 1 pas dépasse ce nombre d'écarts-types. Plus bas = plus d'anomalies signalées.",
+      },
+    ],
+    run: forecastCanari,
   },
 };
 
