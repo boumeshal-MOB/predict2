@@ -24,11 +24,14 @@ function kalman(values, cfg) {
   const level = new Array(n);
   const slope = new Array(n);
   const anomalies = [];
+  const rejected = []; // every skipped step (spikes + regime transitions), for honest fit error
   let L = values[0];
   let T = 0;
   let P00 = r * 100;
   let P01 = 0;
   let P11 = r; // slope prior
+  const REGIME_LIMIT = 12; // consecutive rejections before accepting a new regime
+  let streak = 0;
   for (let t = 0; t < n; t++) {
     // predict: x = F x, P = F P F^T + Q
     const Lp = L + T;
@@ -39,11 +42,22 @@ function kalman(values, cfg) {
     const S = a00 + r;
     const e = values[t] - Lp;
     const z = e / Math.sqrt(S);
-    if (Math.abs(z) > thr) {
+    if (Math.abs(z) > thr && streak >= REGIME_LIMIT) {
+      // Persistent departure = regime change (e.g. a flood event), not a spike:
+      // re-anchor the level on the observation so the filter follows the event,
+      // and unmark the streak — those points belong to the new regime.
+      L = values[t]; T = 0; P00 = r * 10; P01 = 0; P11 = r;
+      anomalies.length -= streak;
+      rejected.push(t);
+      streak = 0;
+    } else if (Math.abs(z) > thr) {
       // treat as missing: keep the prediction, don't let a spike bend the level
       L = Lp; P00 = a00; P01 = a01; P11 = a11;
       anomalies.push(t);
+      rejected.push(t);
+      streak++;
     } else {
+      streak = 0;
       const k0 = a00 / S;
       const k1 = a01 / S;
       L = Lp + k0 * e;
@@ -55,7 +69,7 @@ function kalman(values, cfg) {
     level[t] = L;
     slope[t] = T;
   }
-  return { level, slope, anomalies, state: { L, T, P00, P11 } };
+  return { level, slope, anomalies, rejected, state: { L, T, P00, P11 } };
 }
 
 export function forecastCanari(series, params) {
@@ -63,12 +77,19 @@ export function forecastCanari(series, params) {
   const values = finite.map((p) => p.value);
   const n = values.length;
   const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(finite), 10));
-  const thr = Math.max(1, parseFloat(params.anomaly_threshold ?? 3.5));
+  const thr = Math.max(1, parseFloat(params.anomaly_threshold ?? 5));
 
   // Robust observation-noise scale from successive differences.
+  // Two estimators: MAD (fine noise) and the 90th percentile of |diff|
+  // (Gaussian p90 = 1.645σ). Heteroscedastic sensor data has bursts that the
+  // MAD ignores entirely, so take the larger of the two.
   const diffs = [];
   for (let i = 1; i < n; i++) diffs.push(values[i] - values[i - 1]);
-  const sig = (1.4826 * median(diffs.map((d) => Math.abs(d - median(diffs))))) / Math.SQRT2 || 1;
+  const medDiff = median(diffs);
+  const abs = diffs.map((d) => Math.abs(d - medDiff)).sort((a, b) => a - b);
+  const sigMad = (1.4826 * abs[abs.length >> 1]) / Math.SQRT2;
+  const sigP90 = abs[Math.floor(abs.length * 0.9)] / 1.645 / Math.SQRT2;
+  const sig = Math.max(sigMad, sigP90) || 1;
   const r = sig * sig || 1;
   const cfg = {
     r,
@@ -142,8 +163,8 @@ export function forecastCanari(series, params) {
   }
 
   const fitErr = [];
-  const anomSet = new Set(run.anomalies);
-  for (let t = 0; t < n; t++) if (!anomSet.has(t)) fitErr.push(values[t] - run.level[t]);
+  const skip = new Set(run.rejected);
+  for (let t = 0; t < n; t++) if (!skip.has(t)) fitErr.push(values[t] - run.level[t]);
   const rmse = fitErr.length ? Math.sqrt(fitErr.reduce((a, v) => a + v * v, 0) / fitErr.length) : null;
 
   return {

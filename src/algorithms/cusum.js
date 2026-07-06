@@ -22,7 +22,8 @@ export function detectCusum(series, params) {
   const result = { anomalies: new Set(), trend: new Array(series.length).fill(null) };
 
   const auto = Math.min(200, Math.max(20, Math.round(valid.length * 0.15)));
-  const baselineWin = Math.max(5, Math.min(valid.length - 1, parseInt(params.baseline_window ?? auto, 10)));
+  const requested = parseInt(params.baseline_window, 10);
+  const baselineWin = Math.max(5, Math.min(valid.length - 1, Number.isFinite(requested) ? requested : auto));
   if (valid.length < baselineWin + 2) {
     return { ...result, warning: "Série trop courte pour la détection de dérive." };
   }
@@ -38,18 +39,26 @@ export function detectCusum(series, params) {
 
   const k = kSlack * sigma; // allowance: ignore deviations smaller than k
   const h = hThresh * sigma; // decision interval: alarm when the sum exceeds h
+  // Report only the ONSET of each excursion: after an alarm, stay silent until
+  // the signal returns near the reference level, then re-arm. Without this a
+  // persistent shift re-alarms every h/dev points and floods the chart.
   let sPlus = 0;
   let sMinus = 0;
+  let armed = true;
   for (const p of valid) {
     const dev = p.value - mu0;
     sPlus = Math.max(0, sPlus + dev - k);
     sMinus = Math.max(0, sMinus - dev - k);
     result.trend[p.index] = mu0;
     if (sPlus > h || sMinus > h) {
-      result.anomalies.add(p.index);
+      if (armed) {
+        result.anomalies.add(p.index);
+        armed = false;
+      }
       sPlus = 0;
       sMinus = 0;
     }
+    if (!armed && Math.abs(dev) <= k) armed = true;
   }
 
   const warning = result.anomalies.size

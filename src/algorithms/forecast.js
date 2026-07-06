@@ -124,11 +124,14 @@ function knnValues(values, { horizon, windowSize, k }) {
   }
   const norm = normalise(values);
   const y = values.map(norm.encode);
+  // On long series, comparing against every past window is O(n²·w); striding
+  // the candidate library keeps runtime flat with near-identical forecasts.
+  const stride = Math.max(1, Math.ceil((values.length - windowSize) / 600));
   const fitted = new Array(values.length).fill(null);
-  for (let i = windowSize; i < values.length; i++) {
+  for (let i = windowSize; i < values.length; i += stride) {
     const target = y.slice(i - windowSize, i);
     const candidates = [];
-    for (let j = windowSize; j < i; j++) candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[j] });
+    for (let j = windowSize; j < i; j += stride) candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[j] });
     candidates.sort((a, b) => a.d - b.d);
     const pick = candidates.slice(0, Math.min(k, candidates.length));
     if (pick.length) fitted[i] = norm.decode(mean(pick.map((c) => c.next)));
@@ -139,7 +142,7 @@ function knnValues(values, { horizon, windowSize, k }) {
   for (let h = 0; h < horizon; h++) {
     const target = history.slice(-windowSize);
     const candidates = [];
-    for (let j = windowSize; j < y.length; j++) {
+    for (let j = windowSize; j < y.length; j += stride) {
       candidates.push({ d: windowDistance(target, y.slice(j - windowSize, j)), next: y[j] });
     }
     candidates.sort((a, b) => a.d - b.d);
@@ -173,8 +176,10 @@ function mlpValues(values, { horizon, windowSize, hidden, epochs, lr }) {
   const b1 = new Array(hidden).fill(0);
   const w2 = Array.from({ length: hidden }, () => (rand() - 0.5) * 0.2);
   let b2 = 0;
+  // Cap the training set on long series so epochs stay fast (see knnValues).
+  const stride = Math.max(1, Math.ceil((y.length - windowSize) / 1500));
   const samples = [];
-  for (let i = windowSize; i < y.length; i++) samples.push({ x: y.slice(i - windowSize, i), target: y[i], i });
+  for (let i = windowSize; i < y.length; i += stride) samples.push({ x: y.slice(i - windowSize, i), target: y[i], i });
   const predictNorm = (x) => {
     const h = new Array(hidden);
     for (let j = 0; j < hidden; j++) {

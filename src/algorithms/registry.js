@@ -33,7 +33,7 @@ export const MODELS = {
         min: 0.5,
         max: 6,
         step: 0.1,
-        default: 1.7,
+        default: 3.5,
         help: "Plus bas = plus sensible (davantage d'anomalies).",
       },
     ],
@@ -53,7 +53,7 @@ export const MODELS = {
         min: 0.001,
         max: 0.3,
         step: 0.001,
-        default: 0.03,
+        default: 0.01,
         help: "Fraction attendue d'anomalies dans les données.",
       },
       {
@@ -82,15 +82,15 @@ export const MODELS = {
     ],
     params: [
       {
-        key: "baseline_window", label: "Fenêtre de référence (points)", type: "int", min: 5, max: 2000, step: 1, default: 100,
-        help: "Nombre de premiers points définissant le niveau « normal » de référence (médiane + dispersion robuste). Prenez une période stable et représentative.",
+        key: "baseline_window", label: "Fenêtre de référence (points)", type: "int", min: 5, max: 2000, step: 1, default: "auto_day",
+        help: "Nombre de premiers points définissant le niveau « normal » de référence (médiane + dispersion robuste). Par défaut : une journée de mesures. Prenez une période stable et représentative.",
       },
       {
-        key: "slack_k", label: "Sensibilité k (en σ)", type: "float", min: 0, max: 3, step: 0.1, default: 0.5,
+        key: "slack_k", label: "Sensibilité k (en σ)", type: "float", min: 0, max: 3, step: 0.1, default: 1,
         help: "Marge ignorée à chaque pas, en écarts-types. Plus bas = détecte des dérives plus fines mais réagit au bruit ; 0,5 détecte une dérive d'environ 1 σ.",
       },
       {
-        key: "threshold_h", label: "Seuil d'alarme h (en σ)", type: "float", min: 1, max: 12, step: 0.5, default: 5,
+        key: "threshold_h", label: "Seuil d'alarme h (en σ)", type: "float", min: 1, max: 20, step: 0.5, default: 8,
         help: "Niveau que la somme cumulée doit dépasser pour déclencher une alarme. Plus haut = moins de fausses alertes mais détection plus tardive.",
       },
     ],
@@ -113,7 +113,7 @@ export const MODELS = {
         help: "Nombre de points à prévoir dans le futur. Par défaut, calculé automatiquement pour représenter environ une journée de mesures. Un horizon plus long est possible, mais la prévision devient moins fiable à mesure qu'elle s'éloigne du présent.",
       },
       {
-        key: "window_size", label: "Fenêtre d'apprentissage", type: "int", min: 2, max: 336, step: 1, default: 48,
+        key: "window_size", label: "Fenêtre d'apprentissage", type: "int", min: 2, max: 720, step: 1, default: 120,
         help: "Nombre de points récents utilisés comme « signature » de la situation actuelle, comparée aux motifs passés. Trop petite : comparaisons bruitées. Trop grande : plus lent et risque de lisser des motifs locaux utiles. Conseil : visez au moins un demi-cycle de votre phénomène (ex. une demi-journée).",
       },
       {
@@ -140,7 +140,7 @@ export const MODELS = {
         help: "Nombre de points à prévoir dans le futur. Par défaut, calculé automatiquement pour représenter environ une journée de mesures. Un horizon plus long est possible, mais la prévision devient moins fiable à mesure qu'elle s'éloigne du présent.",
       },
       {
-        key: "window_size", label: "Fenêtre d'apprentissage", type: "int", min: 2, max: 336, step: 1, default: 48,
+        key: "window_size", label: "Fenêtre d'apprentissage", type: "int", min: 2, max: 720, step: 1, default: 48,
         help: "Nombre de valeurs passées fournies en entrée au réseau à chaque prédiction. Trop petite : le réseau manque de contexte. Trop grande : plus lent à entraîner. Conseil : visez au moins un demi-cycle de votre phénomène (ex. une demi-journée).",
       },
       {
@@ -183,7 +183,7 @@ export const MODELS = {
         help: "Vitesse à laquelle la pente (dérive) peut changer. Plus haut = détecte des changements de dérive plus rapides mais plus sensible au bruit.",
       },
       {
-        key: "anomaly_threshold", label: "Seuil d'anomalie (en σ)", type: "float", min: 1, max: 8, step: 0.1, default: 3.5,
+        key: "anomaly_threshold", label: "Seuil d'anomalie (en σ)", type: "float", min: 1, max: 12, step: 0.1, default: 5,
         help: "Un point est une anomalie si son erreur de prévision à 1 pas dépasse ce nombre d'écarts-types. Plus bas = plus d'anomalies signalées.",
       },
     ],
