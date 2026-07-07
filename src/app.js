@@ -176,6 +176,8 @@ function handleFile(file) {
         `${parsed.series.length} points`,
         `colonne « ${parsed.valueColumn} »`,
         parsed.timeColumn ? `temps « ${parsed.timeColumn} »` : "axe = index",
+        parsed.velocityColumn ? `vélocité « ${parsed.velocityColumn} »` : null,
+        parsed.rainColumn ? `pluie « ${parsed.rainColumn} »` : null,
         parsed.skipped ? `${parsed.skipped} ligne(s) ignorée(s)` : null,
       ].filter(Boolean).join(" · ");
       $("#file-meta").textContent = `${file.name} — ${meta}`;
@@ -224,7 +226,7 @@ function runDetection() {
   if (!state.data) return;
   $("#run").disabled = true;
   $("#run").textContent = "Analyse…";
-  const series = state.data.series.map((p) => ({ index: p.index, t: p.t, value: p.value, label: p.label }));
+  const series = state.data.series.map((p) => ({ index: p.index, t: p.t, value: p.value, label: p.label, velocity: p.velocity ?? null, rain: p.rain ?? null }));
   const payload = { modelId: state.modelId, series, params: state.params };
 
   const done = (msg) => {
@@ -258,6 +260,10 @@ async function runMainThread(payload, done) {
       done({ ok: true, kind: "forecast", ...out, elapsedMs: 0 });
       return;
     }
+    if (model.kind === "drift") {
+      done({ ok: true, kind: "drift", ...out, elapsedMs: 0 });
+      return;
+    }
     done({
       ok: true,
       kind: "anomaly",
@@ -274,8 +280,13 @@ async function runMainThread(payload, done) {
 // ---- Results rendering -----------------------------------------------------
 function renderResults(msg) {
   ensureCharts();
-  if ((msg.kind || MODELS[state.modelId].kind) === "forecast") {
+  const kind = msg.kind || MODELS[state.modelId].kind;
+  if (kind === "forecast") {
     renderForecastResults(msg);
+    return;
+  }
+  if (kind === "drift") {
+    renderDriftResults(msg);
     return;
   }
   const series = state.data.series;
@@ -497,6 +508,109 @@ function renderStats(stats, warning = null) {
     warn.className = "stat warn-tile";
     warn.textContent = warning;
     wrap.appendChild(warn);
+  }
+}
+
+const DRIFT_TYPE_LABELS = {
+  drift: "Dérive",
+  restriction: "Restriction suspectée",
+  rain: "Événement pluvieux",
+  hydraulic: "Événement hydraulique",
+  excursion: "Excursion de niveau",
+  fault: "Panne (flat-line)",
+};
+
+function fmtDurationFr(sec) {
+  if (!Number.isFinite(sec) || sec <= 0) return "—";
+  const h = sec / 3600;
+  if (h >= 48) return `${Math.round(h / 24)} j`;
+  if (h >= 1) return `${(Math.round(h * 10) / 10).toLocaleString("fr-FR")} h`;
+  return `${Math.round(sec / 60)} min`;
+}
+
+// Multi-channel drift: raw depth on top, then depth + diurnal profile + rescaled
+// velocity with shaded confound/drift windows and violet drift-onset lines.
+function renderDriftResults(msg) {
+  const series = state.data.series;
+  const depth = series.map((p) => p.value);
+  const labels = series.map((p) => p.label);
+  const hasVel = Array.isArray(msg.velocityNorm) && msg.velocityNorm.some((v) => v != null);
+  const windows = (msg.episodes || []).map((e) => ({ start: e.startIndex, end: e.endIndex, type: e.type }));
+  const driftMarkers = new Set(msg.driftStarts || []);
+
+  $("#results").hidden = false;
+  $("#chart-title").textContent = "Série DFINAL (profondeur brute)";
+  chartMain.setData({ series: [{ id: "depth-top", values: depth, name: "Profondeur" }], labels });
+
+  $("#chart-clean-block").hidden = false;
+  $("#chart-clean-title").textContent = "Profondeur désaisonnalisée, profil diurne et épisodes détectés";
+  $("#chart-clean-legend").hidden = true;
+  $("#chart-clean-help").textContent =
+    "Zones colorées : rouge = dérive capteur, orange = restriction aval suspectée, bleu = événement pluvieux ou hydraulique, violet clair = excursion de niveau revenue à la normale, gris = panne (flat-line). Ligne verticale violette = début d'une dérive. Ligne verte = profil diurne (cycle journalier), ligne orange = vélocité remise à l'échelle de la profondeur.";
+
+  const render = (resetView = true) => {
+    const s = [
+      { id: "depth", values: depth, name: "Profondeur", visible: state.visible.depth !== false },
+      { id: "baseline", values: msg.fitted, name: "Profil diurne", color: "#16a34a", width: 2, visible: state.visible.baseline !== false },
+    ];
+    if (hasVel) s.push({ id: "velocity", values: msg.velocityNorm, name: "Vélocité (normalisée)", color: "#f97316", width: 1.8, visible: state.visible.velocity !== false });
+    chartClean.setData({ series: s, labels, windows, driftMarkers, resetView });
+  };
+
+  const toggles = [
+    { id: "depth", label: "Profondeur", kind: "line" },
+    { id: "baseline", label: "Profil diurne", kind: "line", color: "#16a34a" },
+  ];
+  if (hasVel) toggles.push({ id: "velocity", label: "Vélocité (normalisée)", kind: "line", color: "#f97316" });
+  renderSeriesToggles(toggles, () => { render(false); applyYScale(); });
+  render();
+  applyYScale();
+
+  const m = msg.metrics || {};
+  renderStats([
+    { label: "Dérives détectées", value: (m.drifts ?? 0).toLocaleString("fr-FR"), accent: (m.drifts ?? 0) > 0 },
+    { label: "Confounds filtrés", value: (m.confoundsFiltres ?? 0).toLocaleString("fr-FR") },
+    { label: "Points BMR", value: (m.pointsBmr ?? 0).toLocaleString("fr-FR") },
+    { label: "Temps de calcul", value: `${msg.elapsedMs} ms` },
+  ], msg.warning);
+
+  const table = $("#anomaly-table");
+  table.innerHTML = "";
+  const episodes = msg.episodes || [];
+  if (episodes.length) {
+    const details = document.createElement("details");
+    details.open = true;
+    const cap = document.createElement("summary");
+    cap.textContent = `Détail des ${episodes.length} épisode(s) détecté(s)`;
+    details.appendChild(cap);
+    const t = document.createElement("table");
+    const head = document.createElement("tr");
+    for (const h of ["Type", "Début", "Fin", "Durée", "Explication"]) {
+      const th = document.createElement("th");
+      th.textContent = h;
+      head.appendChild(th);
+    }
+    t.appendChild(head);
+    for (const e of episodes) {
+      const tr = document.createElement("tr");
+      const badge = document.createElement("span");
+      badge.className = `badge badge-${e.type}`;
+      badge.textContent = DRIFT_TYPE_LABELS[e.type] || e.type;
+      const tdType = document.createElement("td");
+      tdType.appendChild(badge);
+      const tdStart = document.createElement("td");
+      tdStart.textContent = labels[e.startIndex] ?? `#${e.startIndex + 1}`;
+      const tdEnd = document.createElement("td");
+      tdEnd.textContent = e.ongoing ? "en cours" : (labels[e.endIndex] ?? `#${e.endIndex + 1}`);
+      const tdDur = document.createElement("td");
+      tdDur.textContent = fmtDurationFr(series[e.endIndex].t - series[e.startIndex].t);
+      const tdReason = document.createElement("td");
+      tdReason.textContent = e.reason || "";
+      tr.append(tdType, tdStart, tdEnd, tdDur, tdReason);
+      t.appendChild(tr);
+    }
+    details.appendChild(t);
+    table.appendChild(details);
   }
 }
 

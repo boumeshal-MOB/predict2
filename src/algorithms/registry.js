@@ -7,6 +7,7 @@ import { detectIsolationForest } from "./isolationForest.js";
 import { detectCusum } from "./cusum.js";
 import { forecastKnn, forecastMlp } from "./forecast.js";
 import { forecastCanari } from "./canari.js";
+import { detectMultiChannelDrift } from "./multichannel.js";
 
 export const MODELS = {
   zscore: {
@@ -95,6 +96,57 @@ export const MODELS = {
       },
     ],
     run: detectCusum,
+  },
+  multichannel_drift: {
+    id: "multichannel_drift",
+    label: "Dérive multi-canaux (profondeur + vélocité + pluie)",
+    kind: "drift",
+    description:
+      "Détecte la dérive lente d'un capteur de pression (profondeur qui monte alors que la vélocité reste plate et sans pluie). Retire le cycle diurne, puis distingue la vraie dérive des confusions physiques : restriction aval (profondeur ↑, vélocité ↓), événement pluvieux/hydraulique (profondeur ↑ ET vélocité ↑, pluie), bruit BMR (valeurs trop faibles) et panne (flat-line).",
+    tips: [
+      "Le discriminateur clé est croisé : une dérive capteur fait monter la profondeur SANS que la vélocité bouge et SANS pluie. Si la vélocité monte avec, c'est un événement hydraulique ; si elle baisse, une restriction aval.",
+      "Baissez « Sensibilité k » ou « Seuil d'alarme h » pour détecter des dérives plus fines, au prix de possibles fausses alertes.",
+      "Sans colonne de vélocité, le modèle passe en mode dégradé (il ne peut plus écarter restrictions et événements hydrauliques) : un avertissement le signale.",
+    ],
+    params: [
+      {
+        key: "drift_k", label: "Sensibilité k (en σ)", type: "float", min: 0, max: 3, step: 0.05, default: 0.75,
+        help: "Marge ignorée à chaque pas de la somme cumulée, en écarts-types robustes. Plus bas = détecte des dérives plus faibles mais réagit davantage au bruit.",
+      },
+      {
+        key: "drift_h", label: "Seuil d'alarme h", type: "float", min: 10, max: 600, step: 5, default: 120,
+        help: "Niveau que la somme cumulée doit dépasser pour confirmer une dérive. Plus haut = moins de fausses alertes mais détection plus tardive.",
+      },
+      {
+        key: "min_duration_hours", label: "Durée minimale (h)", type: "float", min: 1, max: 72, step: 1, default: 6,
+        help: "Durée d'accumulation minimale avant de confirmer une dérive. Évite d'alarmer sur des sursauts courts.",
+      },
+      {
+        key: "rain_lag_min", label: "Fenêtre pluie (min)", type: "int", min: 0, max: 1440, step: 10, default: 120,
+        help: "Durée après une pluie pendant laquelle la montée de profondeur est attribuée à l'événement pluvieux et non à une dérive.",
+      },
+      {
+        key: "bmr_depth", label: "Seuil BMR profondeur (mm)", type: "float", min: 0, max: 500, step: 5, default: 50,
+        help: "En dessous de cette profondeur, le signal est jugé trop faible (bruit BMR) et exclu de la détection de dérive.",
+      },
+      {
+        key: "bmr_velocity", label: "Seuil BMR vélocité (m/s)", type: "float", min: 0, max: 2, step: 0.05, default: 0.2,
+        help: "En dessous de cette vélocité, le point est jugé en régime bruité (BMR) et exclu de la détection.",
+      },
+      {
+        key: "vel_neutral_pct", label: "Neutralité vélocité (%)", type: "float", min: 5, max: 50, step: 1, default: 15,
+        help: "La dérive n'est comptée que si la vélocité reste à ± ce pourcentage de son profil journalier normal : c'est le discriminateur clé — profondeur qui monte AVEC vélocité plate. Une vélocité qui s'écarte davantage (hausse = événement hydraulique, baisse = restriction) exonère le point.",
+      },
+      {
+        key: "event_vel_pct", label: "Seuil événement vélocité (%)", type: "float", min: 15, max: 150, step: 5, default: 35,
+        help: "Hausse de vélocité (en % de son profil normal, moyennée sur 1 h) au-delà de laquelle un événement hydraulique est déclaré (profondeur et vélocité co-élevées).",
+      },
+      {
+        key: "drift_min_days", label: "Durée mini d'une dérive (j)", type: "float", min: 0.5, max: 20, step: 0.5, default: 5,
+        help: "Une accumulation qui revient à la normale d'elle-même avant cette durée est classée « excursion de niveau », pas dérive : une vraie dérive capteur ne se corrige pas seule (elle se termine par une recalibration).",
+      },
+    ],
+    run: detectMultiChannelDrift,
   },
   knn_forecast: {
     id: "knn_forecast",

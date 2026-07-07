@@ -11,6 +11,18 @@ const TIME_NAMES = [
 // The target column is matched by substring so real headers like "MP1\DFINAL"
 // (with a device prefix) are found without an exact-name requirement.
 const VALUE_NAME = "dfinal";
+// Optional companion channels for multi-channel drift analysis. Matched by
+// substring, first name that hits wins (order = priority).
+const VELOCITY_NAMES = ["vfinal", "peakvel", "vel"];
+const RAIN_NAMES = ["raini_uk", "rain"];
+
+function findColumn(lower, names) {
+  for (const name of names) {
+    const idx = lower.findIndex((h) => h.includes(name));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
 
 function detectDelimiter(sample) {
   const candidates = [";", ",", "\t", "|"];
@@ -59,6 +71,13 @@ function toNumber(raw, delim) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+// Companion-channel cells are frequently empty; empty / non-numeric => null
+// (not NaN) so downstream models can test `!= null` cleanly.
+function toNumberOrNull(raw, delim) {
+  const n = toNumber(raw, delim);
+  return Number.isFinite(n) ? n : null;
+}
+
 function parseDate(raw) {
   if (!raw) return null;
   const s = raw.trim().replace(/^"|"$/g, "");
@@ -105,6 +124,9 @@ export function parseCsv(text) {
       break;
     }
   }
+  // Optional velocity / rain channels (absent in single-channel CSVs).
+  const velCol = findColumn(lower, VELOCITY_NAMES);
+  const rainCol = findColumn(lower, RAIN_NAMES);
 
   const raw = [];
   let firstDate = null;
@@ -120,7 +142,9 @@ export function parseCsv(text) {
       date = parseDate(rawLabel);
       if (date && !firstDate) firstDate = date;
     }
-    raw.push({ value, date, rawLabel });
+    const velocity = velCol !== -1 ? toNumberOrNull(cells[velCol], delim) : null;
+    const rain = rainCol !== -1 ? toNumberOrNull(cells[rainCol], delim) : null;
+    raw.push({ value, date, rawLabel, velocity, rain });
   }
 
   const series = [];
@@ -137,7 +161,7 @@ export function parseCsv(text) {
     const label = row.date
       ? row.date.toISOString().replace("T", " ").replace(".000Z", "")
       : row.rawLabel ?? `#${i + 1}`;
-    series.push({ index, t, value: row.value, label });
+    series.push({ index, t, value: row.value, label, velocity: row.velocity ?? null, rain: row.rain ?? null });
   });
 
   if (series.length < 2) {
@@ -149,6 +173,8 @@ export function parseCsv(text) {
     columns: header,
     valueColumn: header[valueCol],
     timeColumn: timeCol !== -1 ? header[timeCol] : null,
+    velocityColumn: velCol !== -1 ? header[velCol] : null,
+    rainColumn: rainCol !== -1 ? header[rainCol] : null,
     skipped,
     total: raw.length,
     delimiter: delim,

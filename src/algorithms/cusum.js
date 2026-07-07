@@ -4,6 +4,10 @@
 // deviations, so it surfaces slow, persistent DRIFTS that never produce a single
 // obviously-anomalous point. Each alarm marks the onset of a drift; the running
 // sums reset after an alarm so a long drift is flagged as it progresses.
+// The daily cycle is removed first (diurnal baseline) so the accumulation tracks
+// the true drift rather than the periodic swing; the reference level is then the
+// median of the DESEASONALISED residuals over the reference window.
+import { diurnalBaseline } from "./baseline.js";
 
 function median(values) {
   const s = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
@@ -28,8 +32,13 @@ export function detectCusum(series, params) {
     return { ...result, warning: "Série trop courte pour la détection de dérive." };
   }
 
-  // Robust reference level (median + MAD) taken from the baseline window.
-  const ref = valid.slice(0, baselineWin).map((p) => p.value);
+  // Remove the diurnal cycle first; the CUSUM then works on the residual.
+  const base = diurnalBaseline(valid, (p) => p.value);
+  const des = valid.map((p, i) => (base.available ? p.value - base.baseline[i] : p.value));
+
+  // Robust reference level (median + MAD) taken from the DESEASONALISED
+  // residuals of the baseline window.
+  const ref = des.slice(0, baselineWin);
   const mu0 = median(ref);
   let sigma = 1.4826 * median(ref.map((v) => Math.abs(v - mu0)));
   if (!(sigma > 0)) {
@@ -45,11 +54,12 @@ export function detectCusum(series, params) {
   let sPlus = 0;
   let sMinus = 0;
   let armed = true;
-  for (const p of valid) {
-    const dev = p.value - mu0;
+  for (let i = 0; i < valid.length; i++) {
+    const p = valid[i];
+    const dev = des[i] - mu0;
     sPlus = Math.max(0, sPlus + dev - k);
     sMinus = Math.max(0, sMinus - dev - k);
-    result.trend[p.index] = mu0;
+    result.trend[p.index] = base.available ? mu0 + base.baseline[i] : mu0;
     if (sPlus > h || sMinus > h) {
       if (armed) {
         result.anomalies.add(p.index);
@@ -61,8 +71,11 @@ export function detectCusum(series, params) {
     if (!armed && Math.abs(dev) <= k) armed = true;
   }
 
+  // Display reference level = residual reference + mean diurnal profile so the
+  // reported figure stays on the original scale.
+  const refLevel = base.available ? mu0 + median(base.baseline.slice(0, baselineWin)) : mu0;
   const warning = result.anomalies.size
-    ? `${result.anomalies.size} départ(s) de dérive détecté(s) par rapport au niveau de référence (${mu0.toFixed(2)}).`
+    ? `${result.anomalies.size} départ(s) de dérive détecté(s) par rapport au niveau de référence (${refLevel.toFixed(2)}).`
     : "Aucune dérive significative détectée par rapport au niveau de référence.";
   return { ...result, warning };
 }

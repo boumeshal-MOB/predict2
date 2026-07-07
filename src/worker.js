@@ -18,6 +18,15 @@ self.onmessage = (e) => {
       });
       return;
     }
+    if (model.kind === "drift") {
+      self.postMessage({
+        ok: true,
+        kind: "drift",
+        ...out,
+        elapsedMs: Math.round(performance.now() - t0),
+      });
+      return;
+    }
     const anomalies = [...out.anomalies].sort((a, b) => a - b);
     self.postMessage({
       ok: true,

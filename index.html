@@ -26,7 +26,7 @@
         <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choisir ou déposer un fichier CSV">
           <div class="dz-icon">⬆</div>
           <p><strong>Déposez un CSV</strong> ou cliquez pour choisir</p>
-          <p class="hint">Seule la colonne <code>DFINAL</code> est analysée. Les autres colonnes sont ignorées.</p>
+          <p class="hint">La colonne <code>DFINAL</code> est analysée. Les colonnes de vélocité et de pluie sont détectées automatiquement lorsqu'elles sont présentes (modèle « Dérive multi-canaux »).</p>
           <input id="file" type="file" accept=".csv,text/csv" hidden />
         </div>
         <p id="file-meta" class="file-meta"></p>

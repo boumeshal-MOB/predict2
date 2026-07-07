@@ -48,13 +48,15 @@ const ZOOM = 1.2;
 
 // container: element. options: { onViewChange(xDomain) }
 // setData cfg: { series:[{ values:[], name, className?, color?, dashed?, width? }],
-//   labels:[], markers:Set|null }
+//   labels:[], markers:Set|null, driftMarkers:Set|null,
+//   windows:[{ start, end, type }]|null }
 export function createChart(container, { onViewChange = null } = {}) {
   container.classList.add("chart");
   const st = {
     seriesList: null,
     labels: [],
     markers: null,
+    windows: null,
     N: 0,
     xDomain: [0, 0],
     yDomain: null, // null => auto from visible data
@@ -62,11 +64,12 @@ export function createChart(container, { onViewChange = null } = {}) {
   };
   let drag = null;
 
-  function setData({ series, labels = [], markers = null, driftMarkers = null, resetView = true }) {
+  function setData({ series, labels = [], markers = null, driftMarkers = null, windows = null, resetView = true }) {
     st.seriesList = series;
     st.labels = labels;
     st.markers = markers;
     st.driftMarkers = driftMarkers;
+    st.windows = windows;
     st.N = series[0] ? series[0].values.length : 0;
     if (resetView) {
       st.xDomain = [0, Math.max(0, st.N - 1)];
@@ -184,6 +187,18 @@ export function createChart(container, { onViewChange = null } = {}) {
 
     // Plotted content (clipped)
     const plot = el("g", { "clip-path": `url(#${clipId})` });
+
+    // Shaded episode windows sit behind the series (drawn first).
+    if (st.windows) {
+      for (const wdw of st.windows) {
+        if (wdw.end < lo || wdw.start > hi) continue;
+        const a = Math.max(lo, Math.min(hi, wdw.start));
+        const b = Math.max(lo, Math.min(hi, wdw.end));
+        const xa = x(a);
+        const width = Math.max(1, x(b) - xa);
+        plot.appendChild(el("rect", { x: xa, y: M.top, width, height: PH, class: `win win-${wdw.type}` }));
+      }
+    }
 
     for (const s of st.seriesList) {
       if (s.visible === false) continue;

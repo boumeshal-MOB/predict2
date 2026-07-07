@@ -8,7 +8,14 @@
 //   - a smooth baseline level line (the estimated true signal),
 //   - drift onsets (where the day-averaged level starts ramping) as markers,
 //   - a level+slope forecast, plus a last-day backtest.
-import { defaultDayHorizon, futureLabels, cleanWithZScore } from "./forecast.js";
+import { defaultDayHorizon, futureLabels, cleanWithZScore, medianStep } from "./forecast.js";
+import { diurnalBaseline } from "./baseline.js";
+
+function parseLabelDate(label) {
+  if (!label) return null;
+  const d = new Date(String(label).replace(" ", "T") + "Z");
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 function median(a) {
   const s = a.filter(Number.isFinite).slice().sort((x, y) => x - y);
@@ -59,9 +66,17 @@ export function forecastCanari(series, params) {
   const values = cleaned.values;
   const n = values.length;
 
-  // Robust observation-noise scale from successive differences of the clean signal.
+  // Remove the diurnal cycle before the Kalman pass so the level/slope track the
+  // genuine drift, not the daily swing. The baseline is re-added to everything
+  // that is displayed (level line, forecasts) so it stays superimposable on the
+  // original series.
+  const cleanedPoints = finite.map((p, i) => ({ t: p.t, label: p.label, value: values[i] }));
+  const base = diurnalBaseline(cleanedPoints, (p) => p.value);
+  const deseason = base.available ? values.map((v, i) => v - base.baseline[i]) : values;
+
+  // Robust observation-noise scale from successive differences of the residual.
   const diffs = [];
-  for (let i = 1; i < n; i++) diffs.push(values[i] - values[i - 1]);
+  for (let i = 1; i < n; i++) diffs.push(deseason[i] - deseason[i - 1]);
   const medDiff = median(diffs);
   const sig = (1.4826 * median(diffs.map((d) => Math.abs(d - medDiff)))) / Math.SQRT2 || 1;
   const r = sig * sig || 1;
@@ -71,7 +86,25 @@ export function forecastCanari(series, params) {
     qT: Math.max(1e-12, parseFloat(params.slope_reactivity ?? 0.005)) * r,
   };
 
-  const run = kalman(values, cfg);
+  const run = kalman(deseason, cfg);
+
+  // Re-add the diurnal profile at an arbitrary future/past time.
+  const step = base.step > 1 ? base.step : medianStep(finite);
+  const lastT = finite[n - 1].t;
+  const lastDate = parseLabelDate(finite[n - 1].label);
+  const addFutureBaseline = (arr) => (base.available
+    ? arr.map((v, j) => {
+        const k = j + 1;
+        const fdate = lastDate ? new Date(lastDate.getTime() + k * step * 1000) : null;
+        return v + base.lookup(lastT + k * step, fdate);
+      })
+    : arr);
+  const addRegionBaseline = (arr, startIdx) => (base.available
+    ? arr.map((v, j) => {
+        const p = finite[startIdx + j];
+        return v + base.lookup(p.t, parseLabelDate(p.label));
+      })
+    : arr);
 
   // Drift onset from the DAY-AVERAGED level: over a full day a periodic swing
   // averages out (the daily mean stays flat) while a genuine drift makes it ramp.
@@ -111,35 +144,46 @@ export function forecastCanari(series, params) {
     return { forecast, lower, upper };
   };
 
+  // Project on the deseasonalised level, then re-add the diurnal profile at each
+  // future time so the forecast lands back on the original scale.
   const fut = project(run.level, run.state, horizon);
+  fut.forecast = addFutureBaseline(fut.forecast);
+  fut.lower = addFutureBaseline(fut.lower);
+  fut.upper = addFutureBaseline(fut.upper);
 
   const btH = Math.min(horizon, Math.max(1, Math.floor(n / 2)));
   let backtest = null;
   if (n > btH + 3) {
     const split = n - btH;
-    const head = kalman(values.slice(0, split), cfg);
+    const head = kalman(deseason.slice(0, split), cfg);
     const bt = project(head.level, head.state, btH);
+    const forecast = addRegionBaseline(bt.forecast, split);
+    const lower = addRegionBaseline(bt.lower, split);
+    const upper = addRegionBaseline(bt.upper, split);
     const actual = values.slice(split);
-    const errs = actual.map((v, i) => v - bt.forecast[i]).filter(Number.isFinite);
+    const errs = actual.map((v, i) => v - forecast[i]).filter(Number.isFinite);
     backtest = {
       startIndex: split,
-      forecast: bt.forecast,
+      forecast,
       actual,
       labels: finite.slice(split).map((p) => p.label),
-      lower: bt.lower,
-      upper: bt.upper,
+      lower,
+      upper,
       rmse: errs.length ? Math.sqrt(errs.reduce((a, v) => a + v * v, 0) / errs.length) : null,
     };
   }
 
-  const fitErr = values.map((v, t) => v - run.level[t]);
+  // Display level = deseasonalised level + diurnal profile (superimposable on the
+  // original series).
+  const fitted = base.available ? run.level.map((L, i) => L + base.baseline[i]) : run.level;
+  const fitErr = values.map((v, t) => v - fitted[t]);
   const rmse = Math.sqrt(fitErr.reduce((a, v) => a + v * v, 0) / n);
 
   return {
     forecast: fut.forecast,
     lower: fut.lower,
     upper: fut.upper,
-    fitted: run.level,
+    fitted,
     driftStarts,
     cleanedOutliers: cleaned.indices,
     backtest,
