@@ -6,3 +6,4 @@ tests/drift.csv
 __pycache__/
 tests/real*.csv
 tests/real_*.csv
+tests/synth_*.csv
