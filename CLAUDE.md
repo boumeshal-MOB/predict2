@@ -1,5 +1,9 @@
 # CLAUDE.md — consignes pour l'assistant
 
+> Les règles complètes (conventions, tests, déploiement, journal) sont dans
+> **`AGENTS.md`** (source unique, partagée avec Codex). Ce fichier n'en garde
+> que l'essentiel pour Claude Code — en cas de doute, `AGENTS.md` fait foi.
+
 App statique d'analyse de séries capteur (anomalies, dérive, prévision), JS pur,
 zéro dépendance, UI en français. Prod : GitHub Pages (push `main` → déploie).
 
