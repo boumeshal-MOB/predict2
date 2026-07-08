@@ -2,6 +2,7 @@
 // Forecasting is trained on an automatically cleaned series so short spikes /
 // aberrant measurements do not dominate the prediction.
 import { detectZScore } from "./zscore.js";
+import { diurnalBaseline } from "./baseline.js";
 
 function finiteSeries(series) {
   return series.map((p, i) => ({ ...p, i })).filter((p) => Number.isFinite(p.value));
@@ -217,41 +218,71 @@ function mlpValues(values, { horizon, windowSize, hidden, epochs, lr }) {
   return { forecast, fitted };
 }
 
+function parseLabelDate(label) {
+  if (!label) return null;
+  const d = new Date(String(label).replace(" ", "T") + "Z");
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function buildResult(series, cleaned, modelRun, horizon) {
-  const future = modelRun(cleaned.values, horizon);
-  const sigma = fitBand(cleaned.values, future.fitted);
-  const lower = future.forecast.map((v) => v - 1.96 * sigma);
-  const upper = future.forecast.map((v) => v + 1.96 * sigma);
-  const backtestHorizon = Math.min(horizon, Math.max(1, Math.floor(series.length / 2)));
+  const n = cleaned.values.length;
+  // Deseasonalise before modelling: with a learning window far shorter than a
+  // day, an autoregressive model cannot see the diurnal cycle — it forecasts
+  // flat or oscillating garbage. Let the model learn the RESIDUAL dynamics and
+  // re-add the diurnal profile to everything returned (same treatment as canari).
+  const pts = series.map((p, i) => ({ t: p.t, label: p.label, value: cleaned.values[i] }));
+  const base = diurnalBaseline(pts, (p) => p.value);
+  const values = base.available ? cleaned.values.map((v, i) => v - base.baseline[i]) : cleaned.values;
+  const step = base.step > 1 ? base.step : medianStep(series);
+  const lastDate = parseLabelDate(series[n - 1].label);
+  const lastT = series[n - 1].t;
+  const addFuture = (arr) => (base.available
+    ? arr.map((v, j) => {
+        const k = j + 1;
+        const fdate = lastDate ? new Date(lastDate.getTime() + k * step * 1000) : null;
+        return v + base.lookup(lastT + k * step, fdate);
+      })
+    : arr);
+  const addAt = (arr, startIdx) => (base.available
+    ? arr.map((v, j) => v + base.baseline[startIdx + j])
+    : arr);
+
+  const future = modelRun(values, horizon);
+  const sigma = fitBand(values, future.fitted);
+  const forecast = addFuture(future.forecast);
+  const lower = forecast.map((v) => v - 1.96 * sigma);
+  const upper = forecast.map((v) => v + 1.96 * sigma);
+  const backtestHorizon = Math.min(horizon, Math.max(1, Math.floor(n / 2)));
   let backtest = null;
-  if (cleaned.values.length > backtestHorizon + 2) {
-    const split = cleaned.values.length - backtestHorizon;
-    const trainCleaned = cleanWithZScore(series.slice(0, split));
-    const bt = modelRun(trainCleaned.values, backtestHorizon);
+  if (n > backtestHorizon + 2) {
+    const split = n - backtestHorizon;
+    const bt = modelRun(values.slice(0, split), backtestHorizon);
+    const btForecast = addAt(bt.forecast, split);
     const actual = series.slice(split).map((p) => p.value);
-    const errors = actual.map((v, i) => v - bt.forecast[i]).filter(Number.isFinite);
+    const errors = actual.map((v, i) => v - btForecast[i]).filter(Number.isFinite);
     backtest = {
       startIndex: split,
-      forecast: bt.forecast,
+      forecast: btForecast,
       actual,
       labels: series.slice(split).map((p) => p.label),
       rmse: rmse(errors),
-      lower: bt.forecast.map((v) => v - 1.96 * sigma),
-      upper: bt.forecast.map((v) => v + 1.96 * sigma),
+      lower: btForecast.map((v) => v - 1.96 * sigma),
+      upper: btForecast.map((v) => v + 1.96 * sigma),
     };
   }
+  const fitted = future.fitted.map((v, i) => (Number.isFinite(v) && base.available ? v + base.baseline[i] : v));
   const fitErrors = [];
-  for (let i = 0; i < cleaned.values.length; i++) if (Number.isFinite(future.fitted[i])) fitErrors.push(cleaned.values[i] - future.fitted[i]);
+  for (let i = 0; i < n; i++) if (Number.isFinite(fitted[i])) fitErrors.push(cleaned.values[i] - fitted[i]);
   return {
-    forecast: future.forecast,
+    forecast,
     lower,
     upper,
-    fitted: future.fitted,
+    fitted,
     cleaned: cleaned.values,
     cleanedOutliers: cleaned.indices,
     backtest,
-    forecastLabels: futureLabels(series, future.forecast.length),
-    metrics: { horizon: future.forecast.length, rmse: rmse(fitErrors), backtestRmse: backtest?.rmse ?? null },
+    forecastLabels: futureLabels(series, forecast.length),
+    metrics: { horizon: forecast.length, rmse: rmse(fitErrors), backtestRmse: backtest?.rmse ?? null },
     warning: future.warning ?? (cleaned.indices.length ? `${cleaned.indices.length} mesure(s) aberrante(s) nettoyée(s) avant forecast.` : null),
   };
 }

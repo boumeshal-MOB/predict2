@@ -153,7 +153,7 @@ export const MODELS = {
     label: "Prévision k-NN par analogues",
     kind: "forecast",
     description:
-      "Cherche dans l'historique les fenêtres les plus similaires à la situation actuelle et moyenne leurs suites futures.",
+      "Cherche dans l'historique les fenêtres les plus similaires à la situation actuelle et moyenne leurs suites futures. Le cycle journalier est retiré avant apprentissage puis ré-ajouté à la prévision.",
     tips: [
       "Fonctionne bien sur des signaux à motifs répétitifs (cycles journaliers, hebdomadaires…).",
       "Aucun entraînement : rapide même sur un long historique, essayez d'abord les valeurs par défaut.",
@@ -180,7 +180,7 @@ export const MODELS = {
     label: "Prévision IA — réseau neuronal MLP",
     kind: "forecast",
     description:
-      "Petit réseau neuronal auto-régressif entraîné localement dans le navigateur sur des fenêtres glissantes.",
+      "Petit réseau neuronal auto-régressif entraîné localement dans le navigateur. Il apprend les résidus (cycle journalier retiré puis ré-ajouté à la prévision), ce qui lui permet de suivre le motif quotidien même avec une petite fenêtre.",
     tips: [
       "Peut capter des relations plus complexes que le k-NN, au prix d'un court entraînement (quelques centaines de ms).",
       "Si la prévision part n'importe où (oscillations, valeurs aberrantes), réduisez le taux d'apprentissage ou le nombre d'époques.",
