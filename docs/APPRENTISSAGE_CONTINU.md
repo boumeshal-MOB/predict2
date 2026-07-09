@@ -26,7 +26,20 @@
 ### Perfs de référence (mesurées sur exports réels, pas 2 min, ~5 040 pts)
 - **Dérive multi-canaux** : banc `tests/eval_drift.mjs` = **10/10**, < 30 ms.
   Zéro fausse dérive sur juin/avril (crues jusqu'à 767 mm). Dérive injectée
-  +0,4 mm/h détectée à +39 h de l'onset.
+  +0,4 mm/h détectée à +39 h de l'onset. Sur ~3 mois réels 68 400 pts
+  (site à restriction confirmée analyste) : restriction détectée, ≤ 2 dérives,
+  ~600 ms.
+- **GBDT (arbres boostés)** — RMSE backtest jour J : juin ≈ **8,2 mm** (meilleur
+  de la liste ; MLP 21, k-NN 13). 68 400 pts en ~0,9 s. Sur le site 3 mois,
+  RMSE ≈ 220 : dernier jour à +43 % du niveau médian historique (sans pluie
+  mesurée), la prévision récursive revient vers la climatologie apprise —
+  limite honnête, pas un bug.
+- **SKF Canari** — mono-canal : détecte les **transitions** de régime (bosses
+  Pr(anormal)), pas la dérive soutenue (la rampe = tendance constante que le
+  mélange IMM absorbe). Rampe forte +2 mm/h : transition à +8 h de l'onset,
+  Pr max 98 %. Rampe faible +0,4 mm/h : indétectable mono-canal (= errance
+  naturelle) — c'est le rôle du multi-canaux. ~7-10 transitions/mois sur données
+  réelles (orages inclus, assumé et documenté dans l'UI).
 - **Canari** — RMSE backtest jour J : juin ≈ **15,8 mm** (était 8,2 avant
   désaisonnalisation → **régression à investiguer**), RMSE ajustement ≈ 1,5.
 - **MLP / k-NN** — RMSE backtest : juin ≈ 21 / 13, avril ≈ 15 / 10 (après
@@ -41,9 +54,20 @@
   `drift_min_days` 5 · `vel_neutral_pct` 15 · `event_vel_pct` 35 ·
   BMR 50 mm / 0,2 m/s · `rain_lag_min` 120. Bornes vélocité élargies à
   max(plancher, k·σ du site).
-- Nettoyage amont commun : Z-Score degré 2 / seuil 3 (`cleanWithZScore`).
-- Désaisonnalisation (profil diurne médian) avant : multichannel, Canari,
-  CUSUM, k-NN, MLP.
+- SKF : `r_floor` 4 · `pr_threshold` 0,5 · `min_duration_hours` 1 ·
+  `std_transition_error` 0,0016 · `norm_to_abnorm_prob` 1e-5 ·
+  `abnorm_to_norm_prob` 0,002. Entrée lissée 1 h puis re-standardisée sur
+  l'empreinte 1ʳᵉ moitié ; régime NORMAL = niveau statique pur.
+- GBDT : 60 arbres · profondeur 5 · cap 20 000 pts · lr 0,1 · features
+  sin/cos heure + jour semaine + lags [1,2,3,10,30] + MA 1 h.
+- Nettoyage amont commun : Z-Score degré 2 / seuil 3 + interpolation des
+  points tagués qualité b/c/n (`cleanWithZScore`).
+- **Unités** : auto-détection mm / mètres / pieds dans le parseur (médiane
+  brute), normalisation interne mm + m/s, forçable via le sélecteur UI.
+- **Présélections UI** : chaque modèle expose un choix simple (Sensibilité
+  faible/normale/élevée ou Calcul rapide/équilibré/rigoureux) qui mappe les
+  paramètres numériques ; le détail vit dans « Réglages avancés » (replié) et
+  toute édition avancée bascule le choix sur « Personnalisé ».
 
 ### Limites connues / dettes
 - **Colonnes pluie vides** dans les exports actuels → événements classés
@@ -51,6 +75,9 @@
 - **Un seul canal profondeur** (DFINAL) : pas de croisement PDEPTH/SDEPTH, qui
   est pourtant LE signal d'alerte précoce du guide.
 - **Régression RMSE Canari** après désaisonnalisation (voir Backlog).
+- **SKF mono-canal ne voit pas la dérive soutenue** (mélange IMM « surfe » la
+  rampe) : positionné honnêtement comme écran de transitions + courbe
+  Pr(anormal) ; l'attribution reste au multi-canaux.
 - **Latence d'onset** ~2 j sur rampe faible (0,4 mm/h dans σ≈10 mm) — normal
   statistiquement, mais à documenter côté utilisateur.
 - Pas de gestion : bascule d'entité (DFINAL PDEPTH↔SDEPTH), flux inverse
@@ -90,6 +117,37 @@
 ---
 
 ## Journal (append-only — plus récent en haut)
+
+### 2026-07-09 — SKF Canari + GBDT + présélections simples + unités + tags qualité
+- **Contexte** : demande d'implémenter l'exemple `anomaly_detection` de Canari
+  (SKF, courbe Pr(anormal)), un modèle « façon LightGBM », des paramètres
+  simplifiés pour non-expert, et l'exploitation des colonnes qualité
+  (légende Halifax : a=bon, b=médiocre, c=ensablement, n=panne capteur) sur un
+  export réel 3 mois en **pieds** (piège d'unités : BMR 50 mm aurait masqué
+  tout le site).
+- **Changé** : `skf.js` (IMM 2 régimes, Pr(anormal), épisodes « transition »),
+  `gbdt.js` (gradient boosting histogramme maison, zéro dépendance),
+  `csv.js` (auto-détection d'unités + normalisation mm/m·s⁻¹ + codes qualité
+  par point + `forceUnits`), `quality.js`, interpolation des points tagués dans
+  `cleanWithZScore`. UI : présélections `type:"choice"` sur les 9 modèles,
+  « Réglages avancés » repliés avec bascule « Personnalisé », sélecteur
+  d'unités (re-parse sans re-upload), courbe Pr(anormal) rouge remise à
+  l'échelle + stats dédiées (transitions, Pr max, points tagués).
+- **Appris** : le mélange IMM fait « surfer » le régime normal sur une rampe →
+  seule la TRANSITION est détectable mono-canal, pas la dérive soutenue ; il a
+  fallu un régime NORMAL à niveau statique pur + lissage 1 h de l'entrée pour
+  des bosses de Pr propres. Le GBDT bat nettement MLP/k-NN (8,2 vs 21/13 de
+  RMSE backtest) en apprenant calendrier + dynamique ensemble. RMSE 220 sur le
+  site 3 mois expliqué : dernier jour à +43 % du médian historique, la
+  prévision récursive revient à la climatologie — documenté, pas corrigé.
+- **Décidé** : SKF assumé comme écran de transitions (fenêtres jaunes) qui
+  renvoie vers le multi-canaux pour l'attribution ; l'agent Opus ayant été
+  coupé en cours de route (limite de session API), la calibration et l'UI ont
+  été terminées en solo. Bancs : v1 10/10, v2 (unités/site réel/SKF/GBDT)
+  13/13, Playwright 16/16.
+- **À suivre** : appliquer les présélections « Personnalisé » aussi au chemin
+  inverse (pré-sélectionner le preset correspondant si les valeurs avancées
+  matchent) ; envisager d'afficher la courbe Pr sur son propre axe 0-100 %.
 
 ### 2026-07-08 — Prévision désaisonnalisée + docs de handoff + banc versionné
 - **Contexte** : sur ~3 mois réels, la prévision MLP/k-NN zigzaguait et le

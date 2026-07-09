@@ -1,10 +1,10 @@
-import { parseCsv } from "./csv.js";
+import { parseCsv, unitLabelFr } from "./csv.js";
 import { MODELS, defaultParams } from "./algorithms/registry.js";
 import { createChart, cleanSeries } from "./charts.js";
 import { defaultDayHorizon } from "./algorithms/forecast.js";
 
 const $ = (sel) => document.querySelector(sel);
-const state = { data: null, modelId: "zscore", params: {}, result: null, visible: {} };
+const state = { data: null, modelId: "zscore", params: {}, result: null, visible: {}, rawCsv: null, fileName: null };
 
 // Chart controllers (created lazily, reused across renders).
 let chartMain = null;
@@ -57,9 +57,13 @@ function prefillScale() {
 function resetAll() {
   state.data = null;
   state.result = null;
+  state.rawCsv = null;
+  state.fileName = null;
   $("#file").value = "";
   $("#file-meta").textContent = "";
   $("#file-meta").classList.remove("error");
+  $("#units-row").hidden = true;
+  $("#units").value = "auto";
   $("#run").disabled = true;
   $("#results").hidden = true;
   chartMain?.clear();
@@ -94,6 +98,39 @@ function buildParamControls() {
   renderModelTips(model.tips);
   const wrap = $("#params");
   wrap.innerHTML = "";
+
+  const advInputs = {}; // key -> { range, num } (to sync when a preset is picked)
+  const choiceSelects = []; // [{ p, select }] (to flip to « Personnalisé »)
+  let advDetails = null;
+  let advGrid = null;
+  const ensureAdvanced = () => {
+    if (advGrid) return advGrid;
+    advDetails = document.createElement("details");
+    advDetails.className = "advanced";
+    const sum = document.createElement("summary");
+    sum.textContent = "Réglages avancés";
+    advGrid = document.createElement("div");
+    advGrid.className = "params-grid adv-grid";
+    advDetails.append(sum, advGrid);
+    return advGrid;
+  };
+
+  // Editing an advanced value detaches the preset: the matching select shows
+  // « Personnalisé » so the UI never lies about which values are active.
+  const markCustom = (key) => {
+    for (const { p, select } of choiceSelects) {
+      if (!(p.options || []).some((o) => o.map && key in o.map)) continue;
+      if (![...select.options].some((o) => o.value === "personnalise")) {
+        const opt = document.createElement("option");
+        opt.value = "personnalise";
+        opt.textContent = "Personnalisé";
+        select.appendChild(opt);
+      }
+      select.value = "personnalise";
+      state.params[p.key] = "personnalise";
+    }
+  };
+
   for (const p of model.params) {
     const field = document.createElement("div");
     field.className = "field";
@@ -101,6 +138,40 @@ function buildParamControls() {
     const label = document.createElement("label");
     label.textContent = p.label;
     label.htmlFor = `p-${p.key}`;
+
+    const help = document.createElement("p");
+    help.className = "help";
+    help.textContent = p.help;
+
+    if (p.type === "choice") {
+      const select = document.createElement("select");
+      select.id = `p-${p.key}`;
+      for (const o of p.options || []) {
+        const opt = document.createElement("option");
+        opt.value = o.value;
+        opt.textContent = o.label;
+        select.appendChild(opt);
+      }
+      select.value = p.default;
+      select.addEventListener("change", () => {
+        const o = (p.options || []).find((x) => x.value === select.value);
+        if (!o) return;
+        state.params[p.key] = o.value;
+        if (o.map) {
+          Object.assign(state.params, o.map);
+          for (const [k, v] of Object.entries(o.map)) {
+            const inp = advInputs[k];
+            if (inp) { inp.range.value = v; inp.num.value = v; }
+          }
+        }
+        const custom = [...select.options].find((x) => x.value === "personnalise");
+        if (custom) custom.remove();
+      });
+      field.append(label, select, help);
+      wrap.appendChild(field);
+      choiceSelects.push({ p, select });
+      continue;
+    }
 
     const row = document.createElement("div");
     row.className = "field-row";
@@ -127,19 +198,18 @@ function buildParamControls() {
       state.params[p.key] = val;
       range.value = val;
       num.value = val;
+      if (p.advanced) markCustom(p.key);
     };
     state.params[p.key] = def;
     range.addEventListener("input", () => sync(range.value));
     num.addEventListener("input", () => sync(num.value));
-
-    const help = document.createElement("p");
-    help.className = "help";
-    help.textContent = p.help;
+    advInputs[p.key] = { range, num };
 
     row.append(range, num);
     field.append(label, row, help);
-    wrap.appendChild(field);
+    (p.advanced ? ensureAdvanced() : wrap).appendChild(field);
   }
+  if (advDetails) wrap.appendChild(advDetails);
 }
 
 function renderModelTips(tips) {
@@ -164,33 +234,44 @@ function renderModelTips(tips) {
 }
 
 // ---- CSV loading -----------------------------------------------------------
+// The raw text is kept so the units selector can re-parse without re-uploading.
+function loadCsv(text, name, force = "auto") {
+  try {
+    const parsed = parseCsv(text, { forceUnits: force });
+    state.rawCsv = text;
+    state.fileName = name;
+    state.data = parsed;
+    state.result = null;
+    buildParamControls();
+    const meta = [
+      `${parsed.series.length} points`,
+      `colonne « ${parsed.valueColumn} »`,
+      `unités : ${unitLabelFr(parsed.units)}`,
+      parsed.timeColumn ? `temps « ${parsed.timeColumn} »` : "axe = index",
+      parsed.velocityColumn ? `vélocité « ${parsed.velocityColumn} »` : null,
+      parsed.rainColumn ? `pluie « ${parsed.rainColumn} »` : null,
+      parsed.tagged ? `${parsed.tagged} point(s) tagué(s) qualité` : null,
+      parsed.skipped ? `${parsed.skipped} ligne(s) ignorée(s)` : null,
+    ].filter(Boolean).join(" · ");
+    $("#file-meta").textContent = `${name} — ${meta}`;
+    $("#file-meta").classList.remove("error");
+    $("#units-row").hidden = false;
+    $("#run").disabled = false;
+    $("#results").hidden = true;
+    renderPreview();
+  } catch (err) {
+    $("#file-meta").textContent = err.message;
+    $("#file-meta").classList.add("error");
+    $("#run").disabled = true;
+    state.data = null;
+  }
+}
+
 function handleFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
-    try {
-      const parsed = parseCsv(String(reader.result));
-      state.data = parsed;
-      state.result = null;
-      buildParamControls();
-      const meta = [
-        `${parsed.series.length} points`,
-        `colonne « ${parsed.valueColumn} »`,
-        parsed.timeColumn ? `temps « ${parsed.timeColumn} »` : "axe = index",
-        parsed.velocityColumn ? `vélocité « ${parsed.velocityColumn} »` : null,
-        parsed.rainColumn ? `pluie « ${parsed.rainColumn} »` : null,
-        parsed.skipped ? `${parsed.skipped} ligne(s) ignorée(s)` : null,
-      ].filter(Boolean).join(" · ");
-      $("#file-meta").textContent = `${file.name} — ${meta}`;
-      $("#file-meta").classList.remove("error");
-      $("#run").disabled = false;
-      $("#results").hidden = true;
-      renderPreview();
-    } catch (err) {
-      $("#file-meta").textContent = err.message;
-      $("#file-meta").classList.add("error");
-      $("#run").disabled = true;
-      state.data = null;
-    }
+    $("#units").value = "auto";
+    loadCsv(String(reader.result), file.name);
   };
   reader.readAsText(file);
 }
@@ -517,6 +598,7 @@ const DRIFT_TYPE_LABELS = {
   rain: "Événement pluvieux",
   hydraulic: "Événement hydraulique",
   excursion: "Excursion de niveau",
+  transition: "Transition détectée",
   fault: "Panne (flat-line)",
 };
 
@@ -535,44 +617,68 @@ function renderDriftResults(msg) {
   const depth = series.map((p) => p.value);
   const labels = series.map((p) => p.label);
   const hasVel = Array.isArray(msg.velocityNorm) && msg.velocityNorm.some((v) => v != null);
+  const hasPr = Array.isArray(msg.prAbnormal) && msg.prAbnormal.length > 0;
   const windows = (msg.episodes || []).map((e) => ({ start: e.startIndex, end: e.endIndex, type: e.type }));
   const driftMarkers = new Set(msg.driftStarts || []);
+
+  // Pr(anormal) ∈ [0,1] rescaled onto the depth axis (bottom = 0 %, top = 100 %).
+  let prScaled = null;
+  if (hasPr) {
+    let dmin = Infinity, dmax = -Infinity;
+    for (const v of depth) if (Number.isFinite(v)) { if (v < dmin) dmin = v; if (v > dmax) dmax = v; }
+    const span = dmax - dmin || 1;
+    prScaled = msg.prAbnormal.map((p) => dmin + p * span);
+  }
 
   $("#results").hidden = false;
   $("#chart-title").textContent = "Série DFINAL (profondeur brute)";
   chartMain.setData({ series: [{ id: "depth-top", values: depth, name: "Profondeur" }], labels });
 
   $("#chart-clean-block").hidden = false;
-  $("#chart-clean-title").textContent = "Profondeur désaisonnalisée, profil diurne et épisodes détectés";
+  $("#chart-clean-title").textContent = hasPr
+    ? "Niveau estimé, Pr(anormal) et transitions détectées"
+    : "Profondeur désaisonnalisée, profil diurne et épisodes détectés";
   $("#chart-clean-legend").hidden = true;
-  $("#chart-clean-help").textContent =
-    "Zones colorées : rouge = dérive capteur, orange = restriction aval suspectée, bleu = événement pluvieux ou hydraulique, violet clair = excursion de niveau revenue à la normale, gris = panne (flat-line). Ligne verticale violette = début d'une dérive. Ligne verte = profil diurne (cycle journalier), ligne orange = vélocité remise à l'échelle de la profondeur.";
+  $("#chart-clean-help").textContent = hasPr
+    ? "Analyse faite sur la série nettoyée (tags qualité + Z-Score). Ligne verte = niveau de fond estimé par le filtre. Ligne rouge pointillée = probabilité d'anomalie Pr(anormal), remise à l'échelle du graphique (bas = 0 %, haut = 100 %). Zone jaune = transition détectée, ligne verticale violette = son début. Pour attribuer une cause (dérive capteur, restriction, pluie), lancez ensuite « Dérive multi-canaux »."
+    : "Zones colorées : rouge = dérive capteur, orange = restriction aval suspectée, bleu = événement pluvieux ou hydraulique, violet clair = excursion de niveau revenue à la normale, gris = panne (flat-line). Ligne verticale violette = début d'une dérive. Ligne verte = profil diurne (cycle journalier), ligne orange = vélocité remise à l'échelle de la profondeur.";
 
+  const baselineName = hasPr ? "Niveau estimé" : "Profil diurne";
   const render = (resetView = true) => {
     const s = [
       { id: "depth", values: depth, name: "Profondeur", visible: state.visible.depth !== false },
-      { id: "baseline", values: msg.fitted, name: "Profil diurne", color: "#16a34a", width: 2, visible: state.visible.baseline !== false },
+      { id: "baseline", values: msg.fitted, name: baselineName, color: "#16a34a", width: 2, visible: state.visible.baseline !== false },
     ];
     if (hasVel) s.push({ id: "velocity", values: msg.velocityNorm, name: "Vélocité (normalisée)", color: "#f97316", width: 1.8, visible: state.visible.velocity !== false });
+    if (prScaled) s.push({ id: "prob", values: prScaled, name: "Pr(anormal)", color: "#dc2626", dashed: true, width: 1.6, visible: state.visible.prob !== false });
     chartClean.setData({ series: s, labels, windows, driftMarkers, resetView });
   };
 
   const toggles = [
     { id: "depth", label: "Profondeur", kind: "line" },
-    { id: "baseline", label: "Profil diurne", kind: "line", color: "#16a34a" },
+    { id: "baseline", label: baselineName, kind: "line", color: "#16a34a" },
   ];
   if (hasVel) toggles.push({ id: "velocity", label: "Vélocité (normalisée)", kind: "line", color: "#f97316" });
+  if (prScaled) toggles.push({ id: "prob", label: "Pr(anormal)", kind: "line", color: "#dc2626" });
   renderSeriesToggles(toggles, () => { render(false); applyYScale(); });
   render();
   applyYScale();
 
   const m = msg.metrics || {};
-  renderStats([
-    { label: "Dérives détectées", value: (m.drifts ?? 0).toLocaleString("fr-FR"), accent: (m.drifts ?? 0) > 0 },
-    { label: "Confounds filtrés", value: (m.confoundsFiltres ?? 0).toLocaleString("fr-FR") },
-    { label: "Points BMR", value: (m.pointsBmr ?? 0).toLocaleString("fr-FR") },
-    { label: "Temps de calcul", value: `${msg.elapsedMs} ms` },
-  ], msg.warning);
+  const stats = m.transitions != null
+    ? [
+        { label: "Transitions détectées", value: (m.transitions ?? 0).toLocaleString("fr-FR"), accent: (m.transitions ?? 0) > 0 },
+        { label: "Pr(anormal) max", value: `${m.prMaxPct ?? 0} %` },
+        { label: "Points tagués interpolés", value: (m.tagged ?? 0).toLocaleString("fr-FR") },
+        { label: "Temps de calcul", value: `${msg.elapsedMs} ms` },
+      ]
+    : [
+        { label: "Dérives détectées", value: (m.drifts ?? 0).toLocaleString("fr-FR"), accent: (m.drifts ?? 0) > 0 },
+        { label: "Confounds filtrés", value: (m.confoundsFiltres ?? 0).toLocaleString("fr-FR") },
+        { label: "Points BMR", value: (m.pointsBmr ?? 0).toLocaleString("fr-FR") },
+        { label: "Temps de calcul", value: `${msg.elapsedMs} ms` },
+      ];
+  renderStats(stats, msg.warning);
 
   const table = $("#anomaly-table");
   table.innerHTML = "";
@@ -665,6 +771,9 @@ function initControls() {
   });
   $("#ymin").addEventListener("input", applyYScale);
   $("#ymax").addEventListener("input", applyYScale);
+  $("#units").addEventListener("change", () => {
+    if (state.rawCsv) loadCsv(state.rawCsv, state.fileName, $("#units").value);
+  });
 }
 
 buildModelSelector();

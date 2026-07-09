@@ -30,6 +30,16 @@
           <input id="file" type="file" accept=".csv,text/csv" hidden />
         </div>
         <p id="file-meta" class="file-meta"></p>
+        <div id="units-row" class="units-row" hidden>
+          <label for="units">Unités du fichier</label>
+          <select id="units">
+            <option value="auto">Auto-détection</option>
+            <option value="mm">Millimètres (mm)</option>
+            <option value="m">Mètres (m)</option>
+            <option value="ft">Pieds (ft)</option>
+          </select>
+          <p class="help">Corrigez si l'auto-détection se trompe : tout est converti en interne (mm, m/s) pour que les seuils des modèles restent valables.</p>
+        </div>
       </section>
 
       <section class="panel">

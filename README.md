@@ -16,6 +16,10 @@ le navigateur — aucun serveur, aucune donnée envoyée.
 > automatiquement et exploitées par le modèle multi-canaux. Une colonne
 > temporelle (`DateTime`, `timestamp`, `date`…) sert d'axe si présente. Dates
 > européennes `dd/MM/yyyy`, séparateur et décimales détectés automatiquement.
+> Les **unités** (mm / mètres / pieds) sont auto-détectées et normalisées en
+> interne (mm, m/s) — corrigeables via un sélecteur. Les **tags qualité
+> analyste** (`DepthQualityCode`/`VelocityQualityCode` : b/c/n) sont interpolés
+> avant analyse.
 
 ## Pourquoi côté navigateur ?
 
@@ -33,6 +37,8 @@ le navigateur — aucun serveur, aucune donnée envoyée.
 | **Canari (bayésien)** | dérive + prévision | Filtre de Kalman (niveau + tendance) inspiré de [Bayes-Works/canari](https://github.com/Bayes-Works/canari). Ligne de niveau robuste, départs de dérive (lignes verticales), prévision. |
 | **Prévision k-NN** | prévision | Fenêtres historiques similaires moyennées ; apprentissage sur résidus désaisonnalisés. |
 | **Prévision IA — MLP** | prévision | Petit réseau neuronal auto-régressif entraîné localement sur les résidus désaisonnalisés. |
+| **Prévision arbres boostés (façon LightGBM)** | prévision | Gradient boosting histogramme maison : apprend calendrier (heure, jour) + dynamique locale. Meilleure précision mesurée de la liste. |
+| **SKF Canari (bayésien)** | dérive mono-canal | Switching Kalman Filter (port de l'exemple officiel Canari) : courbe **Pr(anormal)** et fenêtres de transition de régime. |
 | **Dérive multi-canaux** ⭐ | dérive | Le modèle métier : profondeur qui monte **avec vélocité plate et sans pluie** = dérive capteur ; distingue restriction aval, événement pluvieux/hydraulique, bruit BMR et panne. |
 
 Les modèles d'anomalies sont des portages JavaScript des algorithmes Python du
@@ -40,7 +46,9 @@ projet `Predic` (**parité numérique vérifiée**, voir `tests/`). Prévisions 
 dérives sont en JavaScript pur, sans dépendance. Le cycle journalier est retiré
 avant toute détection/prévision puis ré-ajouté. Architecture extensible :
 ajouter un modèle = ajouter une entrée dans `src/algorithms/registry.js`,
-l'interface construit ses contrôles automatiquement.
+l'interface construit ses contrôles automatiquement. Chaque modèle propose une
+**présélection simple** (sensibilité ou budget de calcul) ; les paramètres
+numériques restent accessibles dans « Réglages avancés ».
 
 ## Détection de dérive multi-canaux
 
@@ -72,7 +80,10 @@ src/
     cusum.js          dérive CUSUM
     baseline.js       profil diurne partagé (désaisonnalisation)
     forecast.js       k-NN + MLP + backtest
+    gbdt.js           arbres boostés (façon LightGBM)
     canari.js         Kalman niveau/tendance
+    skf.js            Switching Kalman Filter — Pr(anormal)
+    quality.js        tags qualité analyste (b/c/n)
     multichannel.js   dérive profondeur + vélocité + pluie
 tests/         parité Python, e2e Playwright, banc de validation dérive
 docs/          contexte projet, métier, leçons, déploiement (handoff)

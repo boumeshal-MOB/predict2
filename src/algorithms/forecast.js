@@ -3,6 +3,7 @@
 // aberrant measurements do not dominate the prediction.
 import { detectZScore } from "./zscore.js";
 import { diurnalBaseline } from "./baseline.js";
+import { isBadQuality } from "./quality.js";
 
 function finiteSeries(series) {
   return series.map((p, i) => ({ ...p, i })).filter((p) => Number.isFinite(p.value));
@@ -84,6 +85,9 @@ export function cleanWithZScore(points) {
   const values = points.map((p) => p.value);
   const local = points.map((p, i) => ({ index: i, t: Number.isFinite(p.t) ? p.t : i, value: p.value }));
   const removed = detectZScore(local, { degree: 2, threshold: 3 }).anomalies;
+  // Analyst-tagged points (quality codes b/c/n) are interpolated too, so models
+  // learning on the cleaned signal never fit doubtful / silting / fault data.
+  for (let i = 0; i < points.length; i++) if (isBadQuality(points[i])) removed.add(i);
   return { values: interpolateRemoved(values, removed), indices: [...removed].sort((a, b) => a - b) };
 }
 

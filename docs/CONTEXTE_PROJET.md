@@ -50,12 +50,26 @@ télémétrie, choisit un modèle, ajuste les paramètres, lance l'analyse.
 | `cusum_drift` | anomaly | Glissement de niveau mono-canal (somme cumulée sur résidus désaisonnalisés, alarme au début d'excursion seulement). |
 | `canari` | forecast | Espace d'état bayésien (niveau+tendance, Kalman) inspiré de Bayes-Works/canari (partie LSTM/TAGI omise). Ligne de niveau + départs de dérive (lignes verticales) + prévision. Tourne sur série nettoyée Z-Score et désaisonnalisée. |
 | `knn_forecast` / `mlp_forecast` | forecast | Prévision par analogues / petit réseau de neurones. Apprennent sur **résidus désaisonnalisés** (profil diurne retiré puis ré-ajouté) — indispensable, voir leçons. |
+| `gbdt_forecast` | forecast | Arbres boostés histogramme (façon LightGBM, maison). Features calendrier + lags + MA 1 h ; **meilleure RMSE backtest mesurée** (8,2 vs 21 MLP / 13 k-NN sur juin). |
+| `skf_canari` | drift | Switching Kalman Filter (port de l'exemple `anomaly_detection` officiel de Canari) : courbe **Pr(anormal)** + fenêtres de transition jaunes. Mono-canal : détecte les **transitions**, pas la dérive soutenue (le mélange IMM « surfe » les rampes) — renvoie vers le multi-canaux pour l'attribution. |
 | `multichannel_drift` | drift | **LE modèle vedette** — discriminateur croisé profondeur/vélocité/pluie du guide métier. Voir `METIER_DERIVE.md`. |
 
 Ajouter un modèle = ajouter une entrée dans le registry (`id`, `label`, `kind`,
 `description`, `tips[]`, `params[]` avec bornes/défauts/help, `run(series,
 params)`). L'UI construit tout automatiquement. `default: "auto_day"` sur un
 param int = résolu à « une journée de points » au chargement du fichier.
+Types de paramètres UI : numériques (slider + champ), et `type: "choice"`
+(présélection simple dont `options[].map` fixe plusieurs paramètres numériques
+d'un coup). `advanced: true` = replié sous « Réglages avancés » ; toute édition
+avancée bascule la présélection sur « Personnalisé ».
+
+Le parseur (`src/csv.js`) **auto-détecte les unités** (mm / mètres / pieds via
+les médianes brutes) et normalise tout en interne (mm, m/s) — piège classique :
+un export en pieds aurait sinon tout masqué en BMR (< 50 mm). Forçable par
+`parseCsv(text, { forceUnits })` (sélecteur UI sous le méta fichier). Les codes
+qualité analyste (`DepthQualityCode`/`VelocityQualityCode` — a=bon, b=médiocre,
+c=ensablement/ragging, n=panne) sont portés par point (`p.dq`/`p.vq`) et les
+points b/c/n interpolés par `cleanWithZScore`.
 
 ## Structure
 
@@ -81,9 +95,12 @@ vercel.json      auto-deploy Vercel désactivé
 - `forecast` : graphe historique + graphe bas (origine, ajustée/niveau, prévision J+1 jaune #eab308, backtest jour J magenta #c026d3, dérive Canari = lignes verticales violettes), toggles par série, pas de table.
 - `drift` : graphe historique + graphe bas avec **fenêtres ombrées par type**
   (drift rouge, restriction orange, hydraulic/rain bleu, excursion violet clair,
-  fault gris), vélocité normalisée orange #f97316, profil diurne vert, lignes
-  d'onset violettes, **table de diagnostic** (badge type, début, fin, durée,
-  explication en français).
+  transition jaune, fault gris), vélocité normalisée orange #f97316, profil
+  diurne vert, lignes d'onset violettes, **table de diagnostic** (badge type,
+  début, fin, durée, explication en français). Si le résultat porte
+  `prAbnormal[]` (SKF), une courbe rouge pointillée #dc2626 est superposée,
+  remise à l'échelle de la profondeur (bas = 0 %, haut = 100 %), et les stats
+  affichent transitions / Pr max / points tagués.
 
 ## Attentes de l'utilisateur (récurrentes)
 
