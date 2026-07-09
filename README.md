@@ -27,6 +27,16 @@ le navigateur — aucun serveur, aucune donnée envoyée.
   la machine de l'utilisateur.
 - **Hébergement gratuit** sur GitHub Pages ; calcul sans ressource externe.
 
+## Multilingue
+
+Interface disponible en **français, anglais, italien et espagnol** — sélecteur
+de langue en haut à droite (mémorisé). Tout est traduit : chrome, modèles,
+paramètres, statistiques et diagnostics d'épisodes. Le français reste la source
+(`src/algorithms/registry.js` + `index.html`) ; `src/i18n.js` (sans dépendance,
+importable par le Web Worker) ajoute les surcouches EN/IT/ES et les messages
+d'algorithme localisés. Changer de langue avec un résultat affiché relance
+l'analyse pour régénérer les diagnostics dans la nouvelle langue.
+
 ## Modèles disponibles
 
 | Modèle | Type | Principe |
@@ -85,6 +95,7 @@ src/
     skf.js            Switching Kalman Filter — Pr(anormal)
     quality.js        tags qualité analyste (b/c/n)
     multichannel.js   dérive profondeur + vélocité + pluie
+  i18n.js      dictionnaires FR/EN/IT/ES + helpers (sans dépendance)
 tests/         parité Python, e2e Playwright, banc de validation dérive
 docs/          contexte projet, métier, leçons, déploiement (handoff)
 ```

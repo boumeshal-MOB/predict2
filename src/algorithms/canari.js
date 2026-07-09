@@ -10,6 +10,7 @@
 //   - a level+slope forecast, plus a last-day backtest.
 import { defaultDayHorizon, futureLabels, cleanWithZScore, medianStep } from "./forecast.js";
 import { diurnalBaseline } from "./baseline.js";
+import { am } from "../i18n.js";
 
 function parseLabelDate(label) {
   if (!label) return null;
@@ -190,7 +191,7 @@ export function forecastCanari(series, params) {
     forecastLabels: futureLabels(finite, horizon),
     metrics: { horizon, rmse, backtestRmse: backtest?.rmse ?? null },
     warning: driftStarts.length
-      ? `${driftStarts.length} départ(s) de dérive détecté(s). ${cleaned.indices.length} mesure(s) aberrante(s) retirée(s) (Z-Score) avant analyse.`
-      : `Aucune dérive détectée. ${cleaned.indices.length} mesure(s) aberrante(s) retirée(s) (Z-Score) avant analyse.`,
+      ? am(params.lang).canariDrift(driftStarts.length, cleaned.indices.length)
+      : am(params.lang).canariNoDrift(cleaned.indices.length),
   };
 }

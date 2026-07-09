@@ -4,6 +4,7 @@
 // trees learn the diurnal/weekly pattern AND the local dynamics directly from
 // the cleaned signal. Forecast is recursive (future lags = own predictions).
 import { cleanWithZScore, futureLabels, defaultDayHorizon, medianStep } from "./forecast.js";
+import { am } from "../i18n.js";
 
 const num = (v, d) => {
   const x = typeof v === "number" ? v : parseFloat(v);
@@ -67,6 +68,7 @@ function predictTree(node, xb) {
 }
 
 export function forecastGbdt(series, params) {
+  const M = am(params.lang);
   const finite = series.filter((p) => Number.isFinite(p.value));
   const n = finite.length;
   const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(finite), 10));
@@ -83,7 +85,7 @@ export function forecastGbdt(series, params) {
       cleaned: finite.map((p) => p.value), cleanedOutliers: [], backtest: null,
       forecastLabels: futureLabels(finite, horizon),
       metrics: { horizon, rmse: null, backtestRmse: null },
-      warning: "Série trop courte pour les arbres boostés : prévision naïve.",
+      warning: M.tooShortGbdt(),
     };
   }
 
@@ -196,6 +198,6 @@ export function forecastGbdt(series, params) {
     cleaned: y, cleanedOutliers: cleaned.indices, backtest,
     forecastLabels: futureLabels(finite, horizon),
     metrics: { horizon, rmse: rmseFit, backtestRmse: backtest?.rmse ?? null },
-    warning: cleaned.indices.length ? `${cleaned.indices.length} mesure(s) aberrante(s)/taguée(s) nettoyée(s) avant apprentissage.` : null,
+    warning: cleaned.indices.length ? M.cleanedTrain(cleaned.indices.length) : null,
   };
 }

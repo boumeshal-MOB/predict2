@@ -8,6 +8,7 @@
 // the true drift rather than the periodic swing; the reference level is then the
 // median of the DESEASONALISED residuals over the reference window.
 import { diurnalBaseline } from "./baseline.js";
+import { am } from "../i18n.js";
 
 function median(values) {
   const s = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
@@ -29,7 +30,7 @@ export function detectCusum(series, params) {
   const requested = parseInt(params.baseline_window, 10);
   const baselineWin = Math.max(5, Math.min(valid.length - 1, Number.isFinite(requested) ? requested : auto));
   if (valid.length < baselineWin + 2) {
-    return { ...result, warning: "Série trop courte pour la détection de dérive." };
+    return { ...result, warning: am(params.lang).tooShortDrift() };
   }
 
   // Remove the diurnal cycle first; the CUSUM then works on the residual.
@@ -75,7 +76,7 @@ export function detectCusum(series, params) {
   // reported figure stays on the original scale.
   const refLevel = base.available ? mu0 + median(base.baseline.slice(0, baselineWin)) : mu0;
   const warning = result.anomalies.size
-    ? `${result.anomalies.size} départ(s) de dérive détecté(s) par rapport au niveau de référence (${refLevel.toFixed(2)}).`
-    : "Aucune dérive significative détectée par rapport au niveau de référence.";
+    ? am(params.lang).cusumDrift(result.anomalies.size, refLevel)
+    : am(params.lang).cusumNoDrift();
   return { ...result, warning };
 }

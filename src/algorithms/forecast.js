@@ -4,6 +4,7 @@
 import { detectZScore } from "./zscore.js";
 import { diurnalBaseline } from "./baseline.js";
 import { isBadQuality } from "./quality.js";
+import { am } from "../i18n.js";
 
 function finiteSeries(series) {
   return series.map((p, i) => ({ ...p, i })).filter((p) => Number.isFinite(p.value));
@@ -123,9 +124,9 @@ function windowDistance(a, b) {
   return Math.sqrt(acc / a.length);
 }
 
-function knnValues(values, { horizon, windowSize, k }) {
+function knnValues(values, { horizon, windowSize, k, naiveMsg }) {
   if (values.length < windowSize + 2) {
-    return { forecast: new Array(horizon).fill(values[values.length - 1]), fitted: [], warning: "Série trop courte : prévision naïve avec la dernière valeur." };
+    return { forecast: new Array(horizon).fill(values[values.length - 1]), fitted: [], warning: naiveMsg };
   }
   const norm = normalise(values);
   const y = values.map(norm.encode);
@@ -170,9 +171,9 @@ function mulberry32(seed) {
   };
 }
 
-function mlpValues(values, { horizon, windowSize, hidden, epochs, lr }) {
+function mlpValues(values, { horizon, windowSize, hidden, epochs, lr, naiveMsg }) {
   if (values.length < windowSize + 2) {
-    return { forecast: new Array(horizon).fill(values[values.length - 1]), fitted: [], warning: "Série trop courte : prévision naïve avec la dernière valeur." };
+    return { forecast: new Array(horizon).fill(values[values.length - 1]), fitted: [], warning: naiveMsg };
   }
   const norm = normalise(values);
   const y = values.map(norm.encode);
@@ -228,7 +229,7 @@ function parseLabelDate(label) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function buildResult(series, cleaned, modelRun, horizon) {
+function buildResult(series, cleaned, modelRun, horizon, M = am()) {
   const n = cleaned.values.length;
   // Deseasonalise before modelling: with a learning window far shorter than a
   // day, an autoregressive model cannot see the diurnal cycle — it forecasts
@@ -287,20 +288,24 @@ function buildResult(series, cleaned, modelRun, horizon) {
     backtest,
     forecastLabels: futureLabels(series, forecast.length),
     metrics: { horizon: forecast.length, rmse: rmse(fitErrors), backtestRmse: backtest?.rmse ?? null },
-    warning: future.warning ?? (cleaned.indices.length ? `${cleaned.indices.length} mesure(s) aberrante(s) nettoyée(s) avant forecast.` : null),
+    warning: future.warning ?? (cleaned.indices.length ? M.cleanedForecast(cleaned.indices.length) : null),
   };
 }
 
 export function forecastKnn(series, params) {
+  const M = am(params.lang);
+  const naiveMsg = M.naiveForecast();
   const cleanSeries = finiteSeries(series);
   const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(cleanSeries), 10));
   const windowSize = Math.max(2, parseInt(params.window_size ?? 24, 10));
   const k = Math.max(1, parseInt(params.neighbors ?? 5, 10));
   const cleaned = cleanWithZScore(cleanSeries);
-  return buildResult(cleanSeries, cleaned, (values, h) => knnValues(values, { horizon: h, windowSize, k }), horizon);
+  return buildResult(cleanSeries, cleaned, (values, h) => knnValues(values, { horizon: h, windowSize, k, naiveMsg }), horizon, M);
 }
 
 export function forecastMlp(series, params) {
+  const M = am(params.lang);
+  const naiveMsg = M.naiveForecast();
   const cleanSeries = finiteSeries(series);
   const horizon = Math.max(1, parseInt(params.horizon ?? defaultDayHorizon(cleanSeries), 10));
   const windowSize = Math.max(2, parseInt(params.window_size ?? 24, 10));
@@ -308,5 +313,5 @@ export function forecastMlp(series, params) {
   const epochs = Math.max(1, parseInt(params.epochs ?? 200, 10));
   const lr = Math.max(0.0001, parseFloat(params.learning_rate ?? 0.01));
   const cleaned = cleanWithZScore(cleanSeries);
-  return buildResult(cleanSeries, cleaned, (values, h) => mlpValues(values, { horizon: h, windowSize, hidden, epochs, lr }), horizon);
+  return buildResult(cleanSeries, cleaned, (values, h) => mlpValues(values, { horizon: h, windowSize, hidden, epochs, lr, naiveMsg }), horizon, M);
 }

@@ -68,6 +68,10 @@
   faible/normale/élevée ou Calcul rapide/équilibré/rigoureux) qui mappe les
   paramètres numériques ; le détail vit dans « Réglages avancés » (replié) et
   toute édition avancée bascule le choix sur « Personnalisé ».
+- **Multilingue** : FR (source) + EN/IT/ES via `src/i18n.js` (sans DOM,
+  importable worker). Sélecteur `#lang` mémorisé. Tout traduit (chrome, modèles,
+  params, stats, diagnostics). Langue passée aux algos via `params.lang` ;
+  changer de langue avec résultat affiché relance l'analyse.
 
 ### Limites connues / dettes
 - **Colonnes pluie vides** dans les exports actuels → événements classés
@@ -117,6 +121,32 @@
 ---
 
 ## Journal (append-only — plus récent en haut)
+
+### 2026-07-09 (bis) — Multilingue FR/EN/IT/ES + sélecteur de langue
+- **Contexte** : l'app était figée en français ; demande d'une version anglais,
+  italien et espagnol avec un sélecteur de langue visible.
+- **Changé** : nouveau `src/i18n.js` **sans DOM** (importable par le worker) —
+  dictionnaires UI (`t`), `unitLabel`, `localizeModel` (surcouche EN/IT/ES du
+  registry, FR = source), `am(lang)` pour les messages d'algorithme (raisons
+  d'épisodes + warnings) avec formatage nombre/durée/pourcent localisé (`Intl`).
+  Les 6 algorithmes à texte (multichannel, canari, cusum, forecast, gbdt, skf)
+  reçoivent `params.lang` et émettent leurs diagnostics via `am()`. `index.html`
+  balisé `data-i18n`/`data-i18n-html`/`data-i18n-title` + sélecteur `#lang` dans
+  la topbar ; `app.js` applique `applyStaticUi()`, relocalise modèles/params/
+  résultats à la volée et **relance l'analyse** si un résultat est affiché (les
+  raisons sont générées côté worker, donc non re-traduisibles sans recalcul).
+- **Appris** : garder i18n sans DOM/localStorage au top-level est obligatoire —
+  le worker importe registry→algos→i18n et n'a pas de `localStorage` (lecture
+  paresseuse + `try/catch`). Piège CSS : `.step span` stylait tout `<span>` en
+  pastille ronde → mon `<span data-i18n>` de libellé devenait un rond illisible,
+  corrigé en `.step > span:first-child`.
+- **Décidé** : le français reste la source unique (registry + HTML) ; toute
+  nouvelle chaîne doit être ajoutée aux 4 langues du bon dictionnaire. Un
+  changement de langue avec résultat affiché recalcule (rapide, ~50 ms).
+- **À suivre** : préserver les paramètres réglés lors d'un changement de langue
+  (aujourd'hui `buildParamControls` réinitialise aux défauts) ; ajouter d'autres
+  langues = un bloc par dictionnaire. Bancs : v1 10/10, v2 13/13, UI i18n 18/18,
+  UI présélections 16/16.
 
 ### 2026-07-09 — SKF Canari + GBDT + présélections simples + unités + tags qualité
 - **Contexte** : demande d'implémenter l'exemple `anomaly_detection` de Canari

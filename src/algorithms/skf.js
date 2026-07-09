@@ -19,6 +19,7 @@
 import { defaultDayHorizon, medianStep, cleanWithZScore } from "./forecast.js";
 import { diurnalBaseline } from "./baseline.js";
 import { qualityMask } from "./quality.js";
+import { am } from "../i18n.js";
 
 const num = (v, d) => {
   const x = typeof v === "number" ? v : parseFloat(v);
@@ -125,11 +126,9 @@ function rollingMean(arr, win) {
   return out;
 }
 
-const fmtPct = (p) => `${Math.round(p * 100)} %`;
-const fmtDur = (h) => (h >= 48 ? `${Math.round(h / 24)} j` : h >= 10 ? `${Math.round(h)} h` : `${h.toFixed(1).replace(".", ",")} h`);
-const fmtTrend = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1).replace(".", ",");
 
 export function detectSkfCanari(series, params) {
+  const M = am(params.lang);
   const finite = series.filter((p) => Number.isFinite(p.value));
   const n = finite.length;
   const p = Math.max(1e-9, num(params.norm_to_abnorm_prob, 1e-5)); // NORMAL→ABNORMAL per step
@@ -139,7 +138,7 @@ export function detectSkfCanari(series, params) {
   const minDurH = Math.max(0.5, num(params.min_duration_hours, 1));
 
   if (n < 10) {
-    return { fitted: finite.map((pt) => pt.value), prAbnormal: new Array(n).fill(0), trend: new Array(n).fill(0), episodes: [], driftStarts: [], velocityNorm: null, metrics: { drifts: 0, prMaxPct: 0, tagged: 0 }, warning: "Série trop courte pour le SKF." };
+    return { fitted: finite.map((pt) => pt.value), prAbnormal: new Array(n).fill(0), trend: new Array(n).fill(0), episodes: [], driftStarts: [], velocityNorm: null, metrics: { drifts: 0, prMaxPct: 0, tagged: 0 }, warning: M.tooShortSkf() };
   }
 
   // 1. Clean (quality tags + robust Z-Score) then deseasonalise.
@@ -235,7 +234,7 @@ export function detectSkfCanari(series, params) {
           startIndex: finite[s].index,
           endIndex: finite[e].index,
           type: "transition",
-          reason: `Pr(anormal) max ${fmtPct(prMax)} pendant ${fmtDur(durH)}, tendance ${fmtTrend(trAvg)}/j.`,
+          reason: M.transitionReason(prMax, durH * 3600, trAvg),
         });
         driftStarts.push(finite[s].index);
       }
@@ -246,8 +245,8 @@ export function detectSkfCanari(series, params) {
   const prMax = prAbnormal.reduce((a, v) => Math.max(a, v), 0);
   const tagged = qualityMask(finite).filter(Boolean).length;
   const warns = [];
-  if (!base.available) warns.push("Pas d'horodatage régulier : le cycle diurne n'a pas pu être retiré.");
-  if (tagged) warns.push(`${tagged} point(s) tagué(s) qualité interpolé(s) avant analyse.`);
+  if (!base.available) warns.push(M.warnNoTimestamp());
+  if (tagged) warns.push(M.qualityInterp(tagged));
 
   return {
     fitted,

@@ -14,61 +14,72 @@
         <span class="logo">📈</span>
         <div>
           <h1>Predict&nbsp;2</h1>
-          <p class="tagline">Détection d'anomalies sur séries temporelles — 100&nbsp;% dans votre navigateur</p>
+          <p class="tagline" data-i18n="tagline">Détection d'anomalies sur séries temporelles — 100&nbsp;% dans votre navigateur</p>
         </div>
       </div>
-      <button id="theme" class="theme-btn" title="Basculer clair/sombre" aria-label="Basculer le thème">☾</button>
+      <div class="topbar-actions">
+        <label class="lang-picker">
+          <span class="sr-only" data-i18n="lang.label">Langue</span>
+          <select id="lang" aria-label="Langue">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="it">Italiano</option>
+            <option value="es">Español</option>
+          </select>
+        </label>
+        <button id="theme" class="theme-btn" data-i18n-title="theme.toggle" title="Basculer le thème" aria-label="Basculer le thème">☾</button>
+      </div>
     </header>
 
     <main>
       <section class="panel">
-        <h2 class="step"><span>1</span> Charger un CSV</h2>
+        <h2 class="step"><span>1</span> <span data-i18n="step1">Charger un CSV</span></h2>
         <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choisir ou déposer un fichier CSV">
           <div class="dz-icon">⬆</div>
-          <p><strong>Déposez un CSV</strong> ou cliquez pour choisir</p>
-          <p class="hint">La colonne <code>DFINAL</code> est analysée. Les colonnes de vélocité et de pluie sont détectées automatiquement lorsqu'elles sont présentes (modèle « Dérive multi-canaux »).</p>
+          <p><strong data-i18n="dz.drop">Déposez un CSV</strong> <span data-i18n="dz.or">ou cliquez pour choisir</span></p>
+          <p class="hint" data-i18n-html="dz.hint">La colonne <code>DFINAL</code> est analysée. Les colonnes de vélocité et de pluie sont détectées automatiquement lorsqu'elles sont présentes (modèle « Dérive multi-canaux »).</p>
           <input id="file" type="file" accept=".csv,text/csv" hidden />
         </div>
         <p id="file-meta" class="file-meta"></p>
         <div id="units-row" class="units-row" hidden>
-          <label for="units">Unités du fichier</label>
+          <label for="units" data-i18n="units.label">Unités du fichier</label>
           <select id="units">
-            <option value="auto">Auto-détection</option>
-            <option value="mm">Millimètres (mm)</option>
-            <option value="m">Mètres (m)</option>
-            <option value="ft">Pieds (ft)</option>
+            <option value="auto" data-i18n="units.auto">Auto-détection</option>
+            <option value="mm" data-i18n="units.mm">Millimètres (mm)</option>
+            <option value="m" data-i18n="units.m">Mètres (m)</option>
+            <option value="ft" data-i18n="units.ft">Pieds (ft)</option>
           </select>
-          <p class="help">Corrigez si l'auto-détection se trompe : tout est converti en interne (mm, m/s) pour que les seuils des modèles restent valables.</p>
+          <p class="help" data-i18n="units.help">Corrigez si l'auto-détection se trompe : tout est converti en interne (mm, m/s) pour que les seuils des modèles restent valables.</p>
         </div>
       </section>
 
       <section class="panel">
-        <h2 class="step"><span>2</span> Choisir le modèle &amp; les paramètres</h2>
+        <h2 class="step"><span>2</span> <span data-i18n="step2">Choisir le modèle &amp; les paramètres</span></h2>
         <div class="field">
-          <label for="model">Modèle</label>
+          <label for="model" data-i18n="model">Modèle</label>
           <select id="model"></select>
           <p id="model-desc" class="help"></p>
           <div id="model-tips" class="tips-box" hidden></div>
         </div>
         <div id="params" class="params-grid"></div>
-        <button id="run" class="run-btn" disabled>Lancer l’analyse</button>
+        <button id="run" class="run-btn" data-i18n="run.idle" disabled>Lancer l’analyse</button>
       </section>
 
       <section id="results" class="panel" hidden>
         <div class="results-head">
-          <h2 class="step"><span>3</span> Résultats</h2>
-          <button id="reset-data" class="ghost-btn" type="button" title="Vider les graphiques et recommencer">🗑 Réinitialiser</button>
+          <h2 class="step"><span>3</span> <span data-i18n="step3">Résultats</span></h2>
+          <button id="reset-data" class="ghost-btn" type="button" data-i18n="reset" data-i18n-title="reset.title" title="Vider les graphiques et recommencer">🗑 Réinitialiser</button>
         </div>
         <div id="stats" class="stats-row"></div>
 
         <div class="viz-controls">
-          <button id="reset-zoom" class="ctl-btn" type="button">⤢ Réinitialiser la vue</button>
+          <button id="reset-zoom" class="ctl-btn" type="button" data-i18n="resetZoom">⤢ Réinitialiser la vue</button>
           <div class="scale-group">
-            <label class="chk"><input type="checkbox" id="yauto" checked /> Échelle Y auto</label>
-            <label class="mini">min <input type="number" id="ymin" class="num" step="any" disabled /></label>
-            <label class="mini">max <input type="number" id="ymax" class="num" step="any" disabled /></label>
+            <label class="chk"><input type="checkbox" id="yauto" checked /> <span data-i18n="yauto">Échelle Y auto</span></label>
+            <label class="mini"><span data-i18n="ymin">min</span> <input type="number" id="ymin" class="num" step="any" disabled /></label>
+            <label class="mini"><span data-i18n="ymax">max</span> <input type="number" id="ymax" class="num" step="any" disabled /></label>
           </div>
-          <p class="ctl-hint">Molette&nbsp;: zoom X · Maj+molette&nbsp;: zoom Y · glisser&nbsp;: déplacer X/Y · double-clic&nbsp;: réinitialiser</p>
+          <p class="ctl-hint" data-i18n="ctlHint">Molette&nbsp;: zoom X · Maj+molette&nbsp;: zoom Y · glisser&nbsp;: déplacer X/Y · double-clic&nbsp;: réinitialiser</p>
         </div>
 
         <h3 id="chart-title" class="chart-heading"></h3>
@@ -90,7 +101,7 @@
     </main>
 
     <footer class="foot">
-      <p>Les calculs s'exécutent localement (Web Worker). Aucune donnée n'est envoyée sur un serveur.</p>
+      <p data-i18n="footer">Les calculs s'exécutent localement (Web Worker). Aucune donnée n'est envoyée sur un serveur.</p>
     </footer>
   </div>
 

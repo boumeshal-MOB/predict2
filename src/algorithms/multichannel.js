@@ -13,6 +13,7 @@
 // are surfaced as their own diagnostic episodes.
 import { diurnalBaseline } from "./baseline.js";
 import { medianStep } from "./forecast.js";
+import { am } from "../i18n.js";
 
 const num = (v, d) => {
   const x = typeof v === "number" ? v : parseFloat(v);
@@ -78,17 +79,10 @@ function contiguousRuns(mask) {
   return out;
 }
 
-const fmtSig = (z) => (z >= 0 ? "+" : "−") + Math.abs(z).toFixed(1).replace(".", ",");
-
-function fmtDur(hours) {
-  if (!Number.isFinite(hours)) return "—";
-  if (hours >= 48) return `${Math.round(hours / 24)} j`;
-  if (hours >= 10) return `${Math.round(hours)} h`;
-  return `${hours.toFixed(1).replace(".", ",")} h`;
-}
 
 // series: [{ index, t, value (depth), velocity|null, rain|null, label }]
 export function detectMultiChannelDrift(series, params) {
+  const M = am(params.lang);
   const driftK = num(params.drift_k, 0.75);
   const driftH = num(params.drift_h, 120);
   const minDurH = num(params.min_duration_hours, 6);
@@ -218,10 +212,10 @@ export function detectMultiChannelDrift(series, params) {
     const mVr = vrSeg.length ? meanOf(vrSeg) * 100 : null;
     const durH = (t[end] - t[start]) / 3600;
     const velPart = mVr == null
-      ? "vélocité indisponible"
-      : (Math.abs(mVr) < velNeutralPct * 100 ? `vélocité stable (${fmtSig(mVr)} %)` : `vélocité ${fmtSig(mVr)} %`);
-    const rainPart = hasRain ? (rainy ? "pluie présente" : "pas de pluie") : "pluie non mesurée";
-    return `Profondeur ${fmtSig(mzD)}σ pendant ${fmtDur(durH)}, ${velPart}, ${rainPart}.`;
+      ? M.velNA()
+      : (Math.abs(mVr) < velNeutralPct * 100 ? M.velStable(mVr) : M.velVal(mVr));
+    const rainPart = hasRain ? (rainy ? M.rainPresent() : M.rainAbsent()) : M.rainNA();
+    return M.driftReason(mzD, durH * 3600, velPart, rainPart);
   };
 
   // 5. Two-sided CUSUM on the drift score. Onset = where the running sum leaves
@@ -262,7 +256,7 @@ export function detectMultiChannelDrift(series, params) {
         if (dStep >= 2 && vStep <= -restrVelBound) {
           episodes.push({
             startIndex: onset, endIndex: end, type: "restriction",
-            reason: `Restriction aval suspectée : montée brutale de profondeur (+${dStep.toFixed(1).replace(".", ",")}σ) simultanée à une chute de vélocité (${fmtSig(vStep * 100)} %) pendant ${fmtDur(durSec / 3600)}.`,
+            reason: M.restriction(dStep, vStep * 100, durSec),
           });
           return;
         }
@@ -274,7 +268,7 @@ export function detectMultiChannelDrift(series, params) {
       } else {
         episodes.push({
           startIndex: onset, endIndex: end, type: "excursion",
-          reason: `Excursion de niveau revenue à la normale en ${fmtDur(durSec / 3600)} — non classée dérive (une dérive capteur ne se corrige pas seule). ${driftReason(onset, end, dir)}`,
+          reason: M.excursion(durSec, driftReason(onset, end, dir)),
         });
       }
     };
@@ -305,12 +299,10 @@ export function detectMultiChannelDrift(series, params) {
       episodes.push({ startIndex: s, endIndex: e, type, reason: reasonFn(s, e) });
     }
   };
-  addRuns(hydRain, "rain", (s, e) =>
-    `Événement pluvieux : profondeur et vélocité co-élevées avec pluie pendant ${fmtDur((t[e] - t[s]) / 3600)}.`);
-  addRuns(hydOnly, "hydraulic", (s, e) =>
-    `Événement hydraulique : profondeur et vélocité co-élevées (sans pluie) pendant ${fmtDur((t[e] - t[s]) / 3600)}.`);
+  addRuns(hydRain, "rain", (s, e) => M.rainEvent(t[e] - t[s]));
+  addRuns(hydOnly, "hydraulic", (s, e) => M.hydraulicEvent(t[e] - t[s]));
   for (const [s, e] of contiguousRuns(flat)) {
-    episodes.push({ startIndex: s, endIndex: e, type: "fault", reason: `Panne probable (flat-line) : ${e - s + 1} points identiques.` });
+    episodes.push({ startIndex: s, endIndex: e, type: "fault", reason: M.fault(e - s + 1) });
   }
 
   episodes.sort((a, b) => a.startIndex - b.startIndex || a.endIndex - b.endIndex);
@@ -326,9 +318,9 @@ export function detectMultiChannelDrift(series, params) {
 
   const drifts = episodes.filter((e) => e.type === "drift").length;
   const warns = [];
-  if (!hasVelocity) warns.push("Vélocité absente : détection en mode dégradé (aucun discriminateur de vitesse).");
-  if (!hasRain) warns.push("Pluie non mesurée : les événements pluvieux ne sont pas distingués.");
-  if (!baseDepth.available) warns.push("Pas d'horodatage régulier : le cycle diurne n'a pas pu être retiré.");
+  if (!hasVelocity) warns.push(M.warnVelAbsent());
+  if (!hasRain) warns.push(M.warnRainNA());
+  if (!baseDepth.available) warns.push(M.warnNoTimestamp());
 
   return {
     fitted: baseDepth.baseline,

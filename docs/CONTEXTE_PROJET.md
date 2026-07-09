@@ -102,6 +102,21 @@ vercel.json      auto-deploy Vercel désactivé
   remise à l'échelle de la profondeur (bas = 0 %, haut = 100 %), et les stats
   affichent transitions / Pr max / points tagués.
 
+## Multilingue (src/i18n.js)
+
+Interface FR/EN/IT/ES, sélecteur en haut à droite (mémorisé `localStorage`).
+`src/i18n.js` est **sans DOM** (le Web Worker l'importe aussi) : dictionnaires
+UI (`t(key, vars)`), `unitLabel`, `localizeModel(model, lang)` (surcouche des
+`label`/`description`/`tips`/`params` du registry — le **français reste la
+source**, EN/IT/ES sont des surcouches), et `am(lang)` qui produit les messages
+d'algorithme (raisons d'épisodes, warnings) avec formatage nombre/durée localisé.
+Les modèles reçoivent la langue via `params.lang` (ajouté au payload worker) ;
+c'est pourquoi changer de langue avec un résultat affiché **relance l'analyse**
+(les raisons sont générées côté worker). Chrome statique = attributs
+`data-i18n` / `data-i18n-html` / `data-i18n-title` dans `index.html`, appliqués
+par `applyStaticUi()`. Ajouter une chaîne = l'ajouter aux 4 langues du bon
+dictionnaire (UI, `MODEL_I18N`, ou `ALGO`).
+
 ## Attentes de l'utilisateur (récurrentes)
 
 - Tester soi-même avant de publier (Playwright + banc `eval_drift`), publier
